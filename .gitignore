@@ -29,4 +29,6 @@ build/
 *.bak
 
 # Cache files
-*.pyc
+**/*.pyc
+**/__pycache__/
+
