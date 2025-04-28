@@ -27,3 +27,6 @@ build/
 # Backup files
 *~
 *.bak
+
+# Cache files
+.pyc
