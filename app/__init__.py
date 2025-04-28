@@ -46,14 +46,14 @@ def create_app():
 
     # Register resources
     from app.resources.transfer import TransferProcessResource
-    from app.resources.dataaddress import DataAddressResource
+    # from app.resources.dataaddress import DataAddressResource
     from app.resources.status import OrchestrationStatusResource, OrchestrationDetailResource
 
     # Transfer resources
     api.add_resource(TransferProcessResource, '/orchestrator/transferprocesses')
 
     # Data address resources
-    api.add_resource(DataAddressResource, '/orchestrator/edrs/<string:transfer_id>/dataaddress')
+    # api.add_resource(DataAddressResource, '/orchestrator/edrs/<string:transfer_id>/dataaddress')
 
     # Status resources
     api.add_resource(OrchestrationStatusResource, '/orchestrator/status')
