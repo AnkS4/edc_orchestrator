@@ -1,0 +1,29 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+
+# Node modules (for JavaScript/Node.js projects)
+node_modules/
+
+# Dependency directories
+vendor/
+dist/
+build/
+
+# Environment files
+.env
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Backup files
+*~
+*.bak
