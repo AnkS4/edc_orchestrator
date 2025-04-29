@@ -97,6 +97,7 @@ class TransferProcessResource(Resource):
             'X-Api-Key': self.api_key,
         }
         self.data_address_delay = current_app.config['DATA_ADDRESS_DELAY']
+        self.data_address_max_retries = current_app.config['DATA_ADDRESS_MAX_RETRIES']
 
     def _update_orchestration_status(
         self,
@@ -283,51 +284,52 @@ class TransferProcessResource(Resource):
         Returns:
             Data address dict or error response tuple
         """
-        try:
-            url = (
-                f"{current_app.config['EDC_CONSUMER_API']}"
-                f"/consumer/cp/api/management/v3/edrs/{transfer_id}/dataaddress"
-            )
+        for attempt in range(self.data_address_max_retries):
+            try:
+                url = (
+                    f"{current_app.config['EDC_CONSUMER_API']}"
+                    f"/consumer/cp/api/management/v3/edrs/{transfer_id}/dataaddress"
+                )
 
-            logger.info(f"Adding {self.data_address_delay}s delay for EDC to assign the data address")
-            time.sleep(self.data_address_delay)
+                logger.info(f"Adding {self.data_address_delay}s delay for EDC to assign the data address")
+                time.sleep(self.data_address_delay)
 
-            logger.info(f"Sent GET request to {url}")
-            response = make_request(
-                'get',
-                url,
-                headers=self.headers,
-                timeout=self.timeout,
-            )
-            logger.info(f"Received response from {url}: {response.status_code} {response.text}")
+                logger.info(f"Sent GET request to {url}")
+                response = make_request(
+                    'get',
+                    url,
+                    headers=self.headers,
+                    timeout=self.timeout,
+                )
+                logger.info(f"Received response from {url}: {response.status_code} {response.text}")
 
-            response.raise_for_status()
+                response.raise_for_status()
 
-            data_address = response.json()
+                data_address = response.json()
 
-            with orchestration_store_lock:
-                process = orchestration_store.get(orchestration_id)
-                if process:
-                    process.update({
-                        'status': 'DATA_ADDRESS_RETRIEVED',
-                        'data_address': data_address,
-                        'updated_at': import_time(),
-                    })
-            return data_address
+                with orchestration_store_lock:
+                    process = orchestration_store.get(orchestration_id)
+                    if process:
+                        process.update({
+                            'status': 'DATA_ADDRESS_RETRIEVED',
+                            'data_address': data_address,
+                            'updated_at': import_time(),
+                        })
+                return data_address
 
-        except Exception as exc:
-            logger.error("Data address retrieval failed: %s", str(exc))
-            self._update_orchestration_status(
-                orchestration_id,
-                'FAILED',
-                error=str(exc),
-            )
-            return create_error_response(
-                message="Data address retrieval failed",
-                details=str(exc),
-                orchestration_id=orchestration_id,
-                status_code=500,
-            )
+            except Exception as exc:
+                logger.error("Data address retrieval failed: %s", str(exc))
+                self._update_orchestration_status(
+                    orchestration_id,
+                    'FAILED',
+                    error=str(exc),
+                )
+                return create_error_response(
+                    message="Data address retrieval failed",
+                    details=str(exc),
+                    orchestration_id=orchestration_id,
+                    status_code=500,
+                )
 
     def _handle_data_registration(
         self,
