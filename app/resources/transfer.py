@@ -69,8 +69,8 @@ data_parser.add_argument(
     'auth_type',
     type=str,
     default='none',
-    choices=['none', 'basic', 'bearer'],
-    help="Supported auth types: none, basic, bearer",
+    choices=['none'],
+    help="Supported auth type: none (default: none)",
 )
 data_parser.add_argument(
     'properties',
