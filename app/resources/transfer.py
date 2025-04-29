@@ -3,6 +3,7 @@
 import logging
 import uuid
 from typing import Any
+import time
 
 import requests
 from flask import current_app, request
@@ -95,6 +96,7 @@ class TransferProcessResource(Resource):
             'Content-Type': 'application/json',
             'X-Api-Key': self.api_key,
         }
+        self.data_address_delay = current_app.config['DATA_ADDRESS_DELAY']
 
     def _update_orchestration_status(
         self,
@@ -286,6 +288,9 @@ class TransferProcessResource(Resource):
                 f"{current_app.config['EDC_CONSUMER_API']}"
                 f"/consumer/cp/api/management/v3/edrs/{transfer_id}/dataaddress"
             )
+
+            logger.info(f"Adding {self.data_address_delay}s delay for EDC to assign the data address")
+            time.sleep(self.data_address_delay)
 
             logger.info(f"Sent GET request to {url}")
             response = make_request(
