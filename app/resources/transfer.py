@@ -162,7 +162,6 @@ class TransferProcessResource(Resource):
 
             if transfer_type == 'service':
                 args = service_parser.parse_args()
-                # print(args)
                 return self._handle_service_transfer(args, orchestration_id)
             else:
                 args = data_parser.parse_args()
@@ -219,6 +218,8 @@ class TransferProcessResource(Resource):
         )
 
         try:
+            logger.info(f"Sent POST request to {edc_url} with payload: {transfer_request}")
+
             response = make_request(
                 'post',
                 edc_url,
@@ -226,6 +227,9 @@ class TransferProcessResource(Resource):
                 headers=self.headers,
                 timeout=self.timeout,
             )
+
+            logger.info(f"Received response from {edc_url}: {response.status_code} {response.text}")
+
             response.raise_for_status()
             transfer_data = response.json()
             transfer_id = transfer_data.get('@id')
@@ -282,14 +286,20 @@ class TransferProcessResource(Resource):
                 f"{current_app.config['EDC_CONSUMER_API']}"
                 f"/consumer/cp/api/management/v3/edrs/{transfer_id}/dataaddress"
             )
+
+            logger.info(f"Sent GET request to {url}")
             response = make_request(
                 'get',
                 url,
                 headers=self.headers,
                 timeout=self.timeout,
             )
+            logger.info(f"Received response from {url}: {response.status_code} {response.text}")
+
             response.raise_for_status()
+
             data_address = response.json()
+
             with orchestration_store_lock:
                 process = orchestration_store.get(orchestration_id)
                 if process:
@@ -299,6 +309,7 @@ class TransferProcessResource(Resource):
                         'updated_at': import_time(),
                     })
             return data_address
+
         except Exception as exc:
             logger.error("Data address retrieval failed: %s", str(exc))
             self._update_orchestration_status(
@@ -341,6 +352,7 @@ class TransferProcessResource(Resource):
             'REGISTERED',
             **registration_data,
         )
+        logger.info(f"Registered data endpoint for orchestration_id={orchestration_id}: {registration_data}")
 
         return create_success_response({
             'orchestration_id': orchestration_id,
