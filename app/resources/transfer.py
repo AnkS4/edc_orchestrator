@@ -291,8 +291,9 @@ class TransferProcessResource(Resource):
                     f"/consumer/cp/api/management/v3/edrs/{transfer_id}/dataaddress"
                 )
 
-                logger.info(f"Adding {self.data_address_delay}s delay for EDC to assign the data address")
-                time.sleep(self.data_address_delay)
+                if attempt > 0:
+                    logger.info(f"Adding {self.data_address_delay}s delay for EDC to assign the data address")
+                    time.sleep(self.data_address_delay)
 
                 logger.info(f"Sent GET request to {url}")
                 response = make_request(
