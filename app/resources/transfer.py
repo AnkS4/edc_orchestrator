@@ -284,6 +284,7 @@ class TransferProcessResource(Resource):
         Returns:
             Data address dict or error response tuple
         """
+        last_exception = None
         for attempt in range(self.data_address_max_retries):
             try:
                 url = (
@@ -292,10 +293,11 @@ class TransferProcessResource(Resource):
                 )
 
                 if attempt > 0:
-                    logger.info(f"Adding {self.data_address_delay}s delay for EDC to assign the data address")
+                    logger.info(
+                        f"Attempt {attempt + 1}: Adding {self.data_address_delay}s delay for EDC to assign the data address")
                     time.sleep(self.data_address_delay)
 
-                logger.info(f"Sent GET request to {url}")
+                logger.info(f"Attempt {attempt + 1}: Sent GET request to {url}")
                 response = make_request(
                     'get',
                     url,
@@ -319,18 +321,22 @@ class TransferProcessResource(Resource):
                 return data_address
 
             except Exception as exc:
-                logger.error("Data address retrieval failed: %s", str(exc))
-                self._update_orchestration_status(
-                    orchestration_id,
-                    'FAILED',
-                    error=str(exc),
-                )
-                return create_error_response(
-                    message="Data address retrieval failed",
-                    details=str(exc),
-                    orchestration_id=orchestration_id,
-                    status_code=500,
-                )
+                logger.error("Attempt %d: Data address retrieval failed: %s", attempt + 1, str(exc))
+                last_exception = exc
+                # Only update status to 'FAILED' after final attempt
+
+        # All retries failed
+        self._update_orchestration_status(
+            orchestration_id,
+            'FAILED',
+            error=str(last_exception),
+        )
+        return create_error_response(
+            message="Data address retrieval failed",
+            details=str(last_exception),
+            orchestration_id=orchestration_id,
+            status_code=500,
+        )
 
     def _handle_data_registration(
         self,
