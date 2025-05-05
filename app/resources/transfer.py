@@ -1,6 +1,6 @@
 import logging
 import uuid
-from typing import Any
+from typing import Any, List
 import time
 import requests
 from flask import current_app, request
@@ -15,83 +15,76 @@ from app.utils.error_handling import (
 
 logger = logging.getLogger(__name__)
 
-# Request Parsers
+# Combined Request Parser
+combined_parser = reqparse.RequestParser()
+combined_parser.add_argument(
+    'service',
+    type=dict,
+    required=True,
+    help="Service configuration required",
+    location='json'
+)
+combined_parser.add_argument(
+    'data',
+    type=list,
+    required=True,
+    help="Data entries required",
+    location='json'
+)
+
+"""
+# Service Parser (without type/properties)
 service_parser = reqparse.RequestParser()
 service_parser.add_argument(
-    'type',
+    'counterPartyAddress',
     type=str,
     required=True,
-    choices=['service'],
-    help="Transfer type must be 'service'",
+    help="Counter party address required",
+    location=('service',)
 )
 service_parser.add_argument(
     'contractId',
     type=str,
     required=True,
-    help="Contract agreement ID required for service transfer",
-)
-service_parser.add_argument(
-    'counterPartyAddress',
-    type=str,
-    required=True,
-    help="Counter party address required for service transfer",
+    help="Contract agreement ID required",
+    location=('service',)
 )
 service_parser.add_argument(
     'connectorId',
     type=str,
     required=True,
-    help="Provider connector ID",
+    help="Provider connector ID required",
+    location=('service',)
 )
 service_parser.add_argument(
     'clientIp',
     type=str,
     required=True,
-    help="Client IP address must be provided"
-)
-service_parser.add_argument(
-    'properties',
-    type=dict
+    help="Client IP address required",
+    location=('service',)
 )
 
+# Data Parser (without type/properties)
 data_parser = reqparse.RequestParser()
-data_parser.add_argument(
-    'type',
-    type=str,
-    required=True,
-    choices=['data'],
-    help="Transfer type must be 'data'",
-)
 data_parser.add_argument(
     'endpoint',
     type=str,
     required=True,
-    help="Endpoint required for data registration",
+    help="Endpoint required",
+    location=('data',)
 )
 data_parser.add_argument(
     'auth_type',
     type=str,
     default='none',
     choices=['none'],
-    help="Supported auth type: none (default: none)",
+    help="Supported auth types: none",
+    location=('data',)
 )
-data_parser.add_argument(
-    'properties',
-    type=dict
-)
-
+"""
 
 class TransferProcessResource(Resource):
-    """
-    Resource for managing service transfers and data registrations.
-
-    Attributes:
-        timeout (int): Request timeout from config
-        api_key (str): EDC API key from config
-        headers (dict): Preconfigured request headers
-    """
-
     def __init__(self):
-        """Initialize resource with validated configuration."""
         self.timeout = current_app.config['REQUEST_TIMEOUT']
         self.api_key = current_app.config['EDC_API_KEY']
         self.headers = {
@@ -101,20 +94,7 @@ class TransferProcessResource(Resource):
         self.data_address_delay = current_app.config['DATA_ADDRESS_DELAY']
         self.data_address_max_retries = current_app.config['DATA_ADDRESS_MAX_RETRIES']
 
-    def _update_orchestration_status(
-        self,
-        orchestration_id: str,
-        status: str,
-        **kwargs: Any
-    ):
-        """
-        Update orchestration process status atomically.
-
-        Args:
-            orchestration_id: Unique process identifier
-            status: New status value
-            kwargs: Additional fields to update
-        """
+    def _update_orchestration_status(self, orchestration_id: str, status: str, **kwargs: Any):
         with orchestration_store_lock:
             process = orchestration_store.get(orchestration_id)
             if process:
@@ -127,13 +107,7 @@ class TransferProcessResource(Resource):
 
     @handle_exceptions
     def post(self):
-        """
-        Main entry point for transfer requests.
-
-        Returns:
-            Tuple containing (response, status_code)
-        """
-        logger.info("Processing transfer request")
+        logger.info("Processing combined transfer request")
 
         # API Key Validation
         api_key = request.headers.get('X-Api-Key')
@@ -145,63 +119,90 @@ class TransferProcessResource(Resource):
         orchestration_id = str(uuid.uuid4())
         init_data = {
             'status': 'INITIALIZING',
-            'type': None,
+            'type': 'combined',
             'original_request': request.get_json(),
             'created_at': import_time(),
             'updated_at': import_time(),
             'transfer_id': None,
+            'data_entries': []
         }
 
         try:
-            request_data = request.get_json()
-            if not request_data:
-                return create_error_response('Invalid JSON body', 400)
+            """
+            args = combined_parser.parse_args()
+            service_args = service_parser.parse_args(req=args['service'])
+            data_entries = [data_parser.parse_args(req=entry) for entry in args['data']]
+            """
 
-            transfer_type = request_data.get('type')
-            if transfer_type not in {'service', 'data'}:
-                return create_error_response('Invalid transfer type', 400)
+            # Replace existing parsing code
+            # With manual JSON validation:
+            try:
+                json_data = request.get_json()
 
-            init_data['type'] = transfer_type
+                # Validate service section
+                service_data = json_data.get('service', {})
+                if not all(k in service_data for k in ['counterPartyAddress', 'contractId', 'connectorId', 'clientIp']):
+                    raise ValueError("Missing required service fields")
+
+                # Validate data entries
+                data_entries = json_data.get('data', [])
+                for entry in data_entries:
+                    if 'endpoint' not in entry:
+                        raise ValueError("Missing endpoint in data entry")
+
+                service_args = {
+                    'counterPartyAddress': service_data['counterPartyAddress'],
+                    'contractId': service_data['contractId'],
+                    'connectorId': service_data['connectorId'],
+                    'clientIp': service_data['clientIp']
+                }
+
+            except Exception as e:
+                logger.error(f"Validation error: {str(e)}")
+                return create_error_response(f"Invalid request format: {str(e)}", status_code=400)
+
             with orchestration_store_lock:
                 orchestration_store[orchestration_id] = init_data
 
-            if transfer_type == 'service':
-                args = service_parser.parse_args()
-                return self._handle_service_transfer(args, orchestration_id)
-            else:
-                args = data_parser.parse_args()
-                return self._handle_data_registration(args, orchestration_id)
+            # Process service transfer
+            service_result = self._handle_service_transfer(service_args, orchestration_id)
+            if isinstance(service_result, tuple):
+                return service_result
 
-        except Exception as exc:
-            logger.error(f"Transfer failed: {str(exc)}", exc_info=True)
+            # Process data registrations
+            data_results = []
+            for data_args in data_entries:
+                data_result = self._handle_data_registration(data_args, orchestration_id)
+                if isinstance(data_result, tuple):
+                    return data_result
+                data_results.append(data_result[0].get_json()['data'])
+
             self._update_orchestration_status(
                 orchestration_id,
-                'FAILED',
-                error=str(exc)
+                'COMPLETED',
+                service_response=service_result[0].get_json()['data'],
+                data_responses=data_results
             )
+
+            return create_success_response({
+                'orchestration_id': orchestration_id,
+                'service': service_result[0].get_json()['data'],
+                'data': data_results,
+                'status': 'COMPLETED'
+            })
+
+        except Exception as exc:
+            logger.error(f"Combined transfer failed: {str(exc)}", exc_info=True)
+            self._update_orchestration_status(orchestration_id, 'FAILED', error=str(exc))
             return create_error_response(
                 message=str(exc),
                 orchestration_id=orchestration_id,
                 status_code=500
             )
 
-    def _handle_service_transfer(
-        self,
-        args: dict,
-        orchestration_id: str
-    ):
-        """
-        Execute service transfer workflow.
-
-        Args:
-            args: Validated request arguments
-            orchestration_id: Process identifier
-
-        Returns:
-            Tuple containing (response, status_code)
-        """
+    def _handle_service_transfer(self, args: dict, orchestration_id: str):
+        """Execute service transfer (modified from original)"""
         logger.info("Initiating service transfer: %s", orchestration_id)
-
         transfer_request = {
             "@context": ["https://w3id.org/edc/connector/management/v0.0.1"],
             "counterPartyAddress": args['counterPartyAddress'],
@@ -212,17 +213,8 @@ class TransferProcessResource(Resource):
             "transferType": "HttpData-PULL",
         }
 
-        if args.get('properties'):
-            transfer_request['properties'] = args['properties']
-
-        # print("Transfer Request: ", transfer_request)
-
-        client_ip = args.get('clientIp')
-        edc_url = f"http://{client_ip}/consumer/cp/api/management/v3/transferprocesses"
-
         try:
-            logger.info(f"Sent POST request to {edc_url} with payload: {transfer_request}")
-
+            edc_url = f"http://{args['clientIp']}/consumer/cp/api/management/v3/transferprocesses"
             response = make_request(
                 'post',
                 edc_url,
@@ -230,14 +222,11 @@ class TransferProcessResource(Resource):
                 headers=self.headers,
                 timeout=self.timeout,
             )
-
-            logger.info(f"Received response from {edc_url}: {response.status_code} {response.text}")
-
             response.raise_for_status()
             transfer_data = response.json()
             transfer_id = transfer_data.get('@id')
+
             if not transfer_id:
-                logger.error("EDC response missing transfer ID: %s", transfer_data)
                 raise ValueError("Invalid EDC transfer response")
 
             self._update_orchestration_status(
@@ -247,9 +236,8 @@ class TransferProcessResource(Resource):
                 edc_response=transfer_data,
             )
 
-            # Synchronously retrieve data address and check for errors
-            data_address_result = self._retrieve_data_address(client_ip, transfer_id, orchestration_id)
-            if isinstance(data_address_result, tuple):  # Indicates error response
+            data_address_result = self._retrieve_data_address(args['clientIp'], transfer_id, orchestration_id)
+            if isinstance(data_address_result, tuple):
                 return data_address_result
 
             return create_success_response({
@@ -261,11 +249,7 @@ class TransferProcessResource(Resource):
 
         except requests.HTTPError as exc:
             logger.error("EDC API error: %s", exc.response.text)
-            self._update_orchestration_status(
-                orchestration_id,
-                'FAILED',
-                error=exc.response.text,
-            )
+            self._update_orchestration_status(orchestration_id, 'FAILED', error=exc.response.text)
             return create_error_response(
                 message="EDC API communication failed",
                 details=exc.response.text,
@@ -273,6 +257,7 @@ class TransferProcessResource(Resource):
                 status_code=exc.response.status_code,
             )
 
+    # Keep existing _retrieve_data_address implementation
     def _retrieve_data_address(self, client_ip: str, transfer_id: str, orchestration_id: str):
         """
         Retrieve data address synchronously.
@@ -351,11 +336,9 @@ class TransferProcessResource(Resource):
             Tuple containing (response, status_code)
         """
         logger.info("Registering data endpoint: %s", orchestration_id)
-
         registration_data = {
             'endpoint': args['endpoint'],
             'auth_type': args['auth_type'],
-            'properties': args.get('properties', {}),
         }
 
         self._update_orchestration_status(
@@ -363,7 +346,6 @@ class TransferProcessResource(Resource):
             'REGISTERED',
             **registration_data,
         )
-        logger.info(f"Registered data endpoint for orchestration_id={orchestration_id}: {registration_data}")
 
         return create_success_response({
             'orchestration_id': orchestration_id,
