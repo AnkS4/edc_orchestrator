@@ -95,6 +95,7 @@ class OrchestrationDetailResource(Resource):
         self._status_cache = {}
         self._cache_ttl = current_app.config.get('CACHE_TTL', 5)  # seconds
         self.parser = detail_parser
+        self.api_key = current_app.config['EDC_API_KEY']
 
     def _get_config_values(self):
         """Retrieve configuration values from app config."""
@@ -176,7 +177,10 @@ class OrchestrationDetailResource(Resource):
             response = make_request(
                 'get',
                 edc_url,
-                headers={'Content-Type': 'application/json'},
+                headers={
+                    'Content-Type': 'application/json',
+                    'X-Api-Key': self.api_key
+                },
                 timeout=self.timeout
             )
 
