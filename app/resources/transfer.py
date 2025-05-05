@@ -1,10 +1,11 @@
 import logging
 import uuid
-from typing import Any, List
+from typing import Any
 import time
 import requests
 from flask import current_app, request
-from flask_restful import Resource, reqparse
+from flask_restful import Resource
+from marshmallow import Schema, fields, ValidationError
 from app.utils.storage import orchestration_store, orchestration_store_lock
 from app.utils.helpers import import_time, make_request
 from app.utils.error_handling import (
@@ -15,74 +16,33 @@ from app.utils.error_handling import (
 
 logger = logging.getLogger(__name__)
 
-# Combined Request Parser
-combined_parser = reqparse.RequestParser()
-combined_parser.add_argument(
-    'service',
-    type=dict,
-    required=True,
-    help="Service configuration required",
-    location='json'
-)
-combined_parser.add_argument(
-    'data',
-    type=list,
-    required=True,
-    help="Data entries required",
-    location='json'
-)
 
-"""
-# Service Parser (without type/properties)
-service_parser = reqparse.RequestParser()
-service_parser.add_argument(
-    'counterPartyAddress',
-    type=str,
-    required=True,
-    help="Counter party address required",
-    location=('service',)
-)
-service_parser.add_argument(
-    'contractId',
-    type=str,
-    required=True,
-    help="Contract agreement ID required",
-    location=('service',)
-)
-service_parser.add_argument(
-    'connectorId',
-    type=str,
-    required=True,
-    help="Provider connector ID required",
-    location=('service',)
-)
-service_parser.add_argument(
-    'clientIp',
-    type=str,
-    required=True,
-    help="Client IP address required",
-    location=('service',)
-)
+# Marshmallow Schemas ================================
+class DataEntrySchema(Schema):
+    endpoint = fields.Str(required=True)
+    auth_type = fields.Str(
+        load_default='none',
+        validate=lambda x: x in ['none']
+    )
 
-# Data Parser (without type/properties)
-data_parser = reqparse.RequestParser()
-data_parser.add_argument(
-    'endpoint',
-    type=str,
-    required=True,
-    help="Endpoint required",
-    location=('data',)
-)
-data_parser.add_argument(
-    'auth_type',
-    type=str,
-    default='none',
-    choices=['none'],
-    help="Supported auth types: none",
-    location=('data',)
-)
-"""
 
+class ServiceSchema(Schema):
+    counterPartyAddress = fields.Str(required=True)
+    contractId = fields.Str(required=True)
+    connectorId = fields.Str(required=True)
+    clientIp = fields.Str(required=True)
+
+
+class CombinedTransferSchema(Schema):
+    service = fields.Nested(ServiceSchema, required=True)
+    data = fields.List(
+        fields.Nested(DataEntrySchema),
+        required=True,
+        validate=lambda x: len(x) > 0
+    )
+
+
+# Resource Implementation ============================
 class TransferProcessResource(Resource):
     def __init__(self):
         self.timeout = current_app.config['REQUEST_TIMEOUT']
@@ -93,6 +53,7 @@ class TransferProcessResource(Resource):
         }
         self.data_address_delay = current_app.config['DATA_ADDRESS_DELAY']
         self.data_address_max_retries = current_app.config['DATA_ADDRESS_MAX_RETRIES']
+        self.schema = CombinedTransferSchema()
 
     def _update_orchestration_status(self, orchestration_id: str, status: str, **kwargs: Any):
         with orchestration_store_lock:
@@ -117,80 +78,61 @@ class TransferProcessResource(Resource):
             return create_error_response('Invalid API key', 403)
 
         orchestration_id = str(uuid.uuid4())
-        init_data = {
-            'status': 'INITIALIZING',
-            'type': 'combined',
-            'original_request': request.get_json(),
-            'created_at': import_time(),
-            'updated_at': import_time(),
-            'transfer_id': None,
-            'data_entries': []
-        }
 
         try:
-            """
-            args = combined_parser.parse_args()
-            service_args = service_parser.parse_args(req=args['service'])
-            data_entries = [data_parser.parse_args(req=entry) for entry in args['data']]
-            """
+            # Validate and deserialize input
+            data = self.schema.load(request.get_json())
 
-            # Replace existing parsing code
-            # With manual JSON validation:
-            try:
-                json_data = request.get_json()
-
-                # Validate service section
-                service_data = json_data.get('service', {})
-                if not all(k in service_data for k in ['counterPartyAddress', 'contractId', 'connectorId', 'clientIp']):
-                    raise ValueError("Missing required service fields")
-
-                # Validate data entries
-                data_entries = json_data.get('data', [])
-                for entry in data_entries:
-                    if 'endpoint' not in entry:
-                        raise ValueError("Missing endpoint in data entry")
-
-                service_args = {
-                    'counterPartyAddress': service_data['counterPartyAddress'],
-                    'contractId': service_data['contractId'],
-                    'connectorId': service_data['connectorId'],
-                    'clientIp': service_data['clientIp']
+            # Store initial state
+            with orchestration_store_lock:
+                orchestration_store[orchestration_id] = {
+                    'status': 'INITIALIZING',
+                    'type': 'combined',
+                    'original_request': data,
+                    'created_at': import_time(),
+                    'updated_at': import_time(),
+                    'transfer_id': None,
+                    'data_entries': []
                 }
 
-            except Exception as e:
-                logger.error(f"Validation error: {str(e)}")
-                return create_error_response(f"Invalid request format: {str(e)}", status_code=400)
-
-            with orchestration_store_lock:
-                orchestration_store[orchestration_id] = init_data
-
             # Process service transfer
-            service_result = self._handle_service_transfer(service_args, orchestration_id)
+            service_result = self._handle_service_transfer(
+                data['service'],
+                orchestration_id
+            )
             if isinstance(service_result, tuple):
                 return service_result
 
             # Process data registrations
-            data_results = []
-            for data_args in data_entries:
-                data_result = self._handle_data_registration(data_args, orchestration_id)
-                if isinstance(data_result, tuple):
-                    return data_result
-                data_results.append(data_result[0].get_json()['data'])
+            data_responses = []
+            for entry in data['data']:
+                result = self._handle_data_registration(entry, orchestration_id)
+                if isinstance(result, tuple):
+                    return result
+                data_responses.append(result[0].get_json()['data'])
 
+            # Final success response
             self._update_orchestration_status(
                 orchestration_id,
                 'COMPLETED',
                 service_response=service_result[0].get_json()['data'],
-                data_responses=data_results
+                data_responses=data_responses
             )
 
             return create_success_response({
                 'orchestration_id': orchestration_id,
                 'service': service_result[0].get_json()['data'],
-                'data': data_results,
+                'data': data_responses,
                 'status': 'COMPLETED'
             })
 
+        except ValidationError as ve:
+            logger.error(f"Validation error: {ve.messages}")
+            return create_error_response(
+                "Invalid request format",
+                details=ve.messages,
+                status_code=400
+            )
         except Exception as exc:
             logger.error(f"Combined transfer failed: {str(exc)}", exc_info=True)
             self._update_orchestration_status(orchestration_id, 'FAILED', error=str(exc))
@@ -200,6 +142,8 @@ class TransferProcessResource(Resource):
                 status_code=500
             )
 
+    # Keep existing _handle_service_transfer, _retrieve_data_address,
+    # and _handle_data_registration implementations unchanged
     def _handle_service_transfer(self, args: dict, orchestration_id: str):
         """Execute service transfer (modified from original)"""
         logger.info("Initiating service transfer: %s", orchestration_id)
