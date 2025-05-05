@@ -1,5 +1,3 @@
-# transfer.py - Enhanced Implementation
-
 import logging
 import uuid
 from typing import Any
@@ -45,6 +43,12 @@ service_parser.add_argument(
     type=str,
     required=True,
     help="Provider connector ID",
+)
+service_parser.add_argument(
+    'clientIp',
+    type=str,
+    required=True,
+    help="Client IP address must be provided"
 )
 service_parser.add_argument(
     'properties',
@@ -215,10 +219,8 @@ class TransferProcessResource(Resource):
 
         # print("Transfer Request: ", transfer_request)
 
-        edc_url = (
-            f"{current_app.config['EDC_CONSUMER_API']}"
-            "/consumer/cp/api/management/v3/transferprocesses"
-        )
+        client_ip = args.get('clientIp')
+        edc_url = f"http://{client_ip}/consumer/cp/api/management/v3/transferprocesses"
 
         try:
             logger.info(f"Sent POST request to {edc_url} with payload: {transfer_request}")
@@ -248,7 +250,7 @@ class TransferProcessResource(Resource):
             )
 
             # Synchronously retrieve data address and check for errors
-            data_address_result = self._retrieve_data_address(transfer_id, orchestration_id)
+            data_address_result = self._retrieve_data_address(client_ip, transfer_id, orchestration_id)
             if isinstance(data_address_result, tuple):  # Indicates error response
                 return data_address_result
 
@@ -273,7 +275,7 @@ class TransferProcessResource(Resource):
                 status_code=exc.response.status_code,
             )
 
-    def _retrieve_data_address(self, transfer_id: str, orchestration_id: str):
+    def _retrieve_data_address(self, client_ip: str, transfer_id: str, orchestration_id: str):
         """
         Retrieve data address synchronously.
 
@@ -287,10 +289,7 @@ class TransferProcessResource(Resource):
         last_exception = None
         for attempt in range(self.data_address_max_retries):
             try:
-                url = (
-                    f"{current_app.config['EDC_CONSUMER_API']}"
-                    f"/consumer/cp/api/management/v3/edrs/{transfer_id}/dataaddress"
-                )
+                url = f"http://{client_ip}/consumer/cp/api/management/v3/edrs/{transfer_id}/dataaddress"
 
                 if attempt > 0:
                     logger.info(

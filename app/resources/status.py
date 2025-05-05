@@ -1,5 +1,5 @@
-from flask_restful import Resource
-from flask import current_app, request
+from flask_restful import Resource, reqparse
+from flask import current_app
 import time
 import logging
 from app.utils.storage import orchestration_store, orchestration_store_lock
@@ -7,6 +7,14 @@ from app.utils.helpers import make_request
 from app.utils.error_handling import create_error_response, create_success_response, handle_exceptions
 
 logger = logging.getLogger(__name__)
+
+detail_parser = reqparse.RequestParser()
+detail_parser.add_argument(
+    'clientIp',
+    type=str,
+    required=True,
+    help="Client IP address must be provided"
+)
 
 
 def get_detailed_orchestration_data(orchestration_id, process):
@@ -86,6 +94,7 @@ class OrchestrationDetailResource(Resource):
         self.timeout = None
         self._status_cache = {}
         self._cache_ttl = current_app.config.get('CACHE_TTL', 5)  # seconds
+        self.parser = detail_parser
 
     def _get_config_values(self):
         """Retrieve configuration values from app config."""
@@ -96,6 +105,11 @@ class OrchestrationDetailResource(Resource):
         """Get detailed status of a specific orchestration process."""
         try:
             self._get_config_values()
+
+            # Parse and validate clientIp
+            args = self.parser.parse_args()
+            client_ip = args['clientIp']
+
             if not orchestration_id:
                 return create_error_response('Invalid orchestration ID', status_code=400)
 
@@ -117,7 +131,7 @@ class OrchestrationDetailResource(Resource):
                 process_type = response_data.get('type')
 
                 if process_type == 'service' and transfer_id:
-                    edc_response = self._get_edc_transfer_status(transfer_id)
+                    edc_response = self._get_edc_transfer_status(transfer_id, client_ip)
                     if edc_response:
                         response_data['transfer_status'] = edc_response.get('state')
                         response_data['edc_response'] = edc_response
@@ -136,12 +150,13 @@ class OrchestrationDetailResource(Resource):
                 status_code=500
             )
 
-    def _get_edc_transfer_status(self, transfer_id):
+    def _get_edc_transfer_status(self, transfer_id, client_ip):
         """
         Retrieve transfer status from EDC Consumer API with caching.
 
         Args:
             transfer_id (str): The transfer ID to check
+            client_ip (str): Client IP address for EDC endpoint
 
         Returns:
             dict: The EDC response or None if error occurred
@@ -155,7 +170,9 @@ class OrchestrationDetailResource(Resource):
                 return cached_data
 
         try:
-            edc_url = f"{current_app.config['EDC_CONSUMER_API']}/transferprocesses/{transfer_id}"
+            # Use client_ip to construct the URL (consistent with transfer.py)
+            edc_url = f"http://{client_ip}/consumer/cp/api/management/v3/transferprocesses/{transfer_id}"
+
             response = make_request(
                 'get',
                 edc_url,
