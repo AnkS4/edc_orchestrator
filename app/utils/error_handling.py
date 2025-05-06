@@ -1,5 +1,3 @@
-# app/utils/error_handling.py
-
 import logging
 from functools import wraps
 import requests
