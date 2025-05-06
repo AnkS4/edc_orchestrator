@@ -12,19 +12,18 @@ def import_time():
 
 def make_request(method, url, **kwargs):
     """
-    Simple request wrapper.
+    Unified request handler with timeout and error logging.
 
     Args:
-        method (str): HTTP method (GET, POST)
-        url (str): URL to send the request to
-        **kwargs: Additional arguments for the request
+        method: HTTP method (GET/POST)
+        url: Target endpoint
+        **kwargs: Additional request parameters
 
     Returns:
-        requests.Response: The HTTP response
+        requests.Response: Response object
 
     Raises:
-        ValueError: If method is not supported
-        Exception: Any exception that occurs during the request
+        requests.exceptions.RequestException: On request failure
     """
     try:
         kwargs.setdefault('timeout', 3)  # Default timeout if not specified

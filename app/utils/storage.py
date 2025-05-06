@@ -1,6 +1,11 @@
 from threading import Lock
 
-# In-memory storage for orchestration processes
+"""
+In-memory storage for orchestration processes.
+
+Note: For production environments, replace with persistent storage
+like Redis or PostgreSQL.
+"""
 orchestration_store = {}
 orchestration_store_lock = Lock()
 
