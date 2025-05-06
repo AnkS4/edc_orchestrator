@@ -1,17 +1,27 @@
 import logging
 from functools import wraps
+
 import requests
 from flask import jsonify
 
 logger = logging.getLogger(__name__)
 
-def create_success_response(data, status_code=200):
-    """Create success response with embedded status code"""
-    return jsonify({
-        'workflow': data,
+
+def create_success_response(data, status_code=200, orchestration_id=None):
+    """Creates a standardized success response with optional orchestration_id at the top level."""
+    response = {
         'status': 'SUCCESS',
         'status_code': status_code
-    })
+    }
+
+    if orchestration_id is not None:
+        response['orchestration_id'] = orchestration_id
+
+    if data is not None:
+        response['workflow'] = data
+
+    return jsonify(response)
+
 
 def create_error_response(message, details=None, status_code=400):
     """Create error response with embedded status code"""

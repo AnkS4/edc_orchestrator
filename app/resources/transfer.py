@@ -1,21 +1,22 @@
 import logging
+import time
 import uuid
 from typing import Any
-import time
+
 import requests
 from flask import current_app, request
 from flask_restful import Resource
 from marshmallow import Schema, fields, ValidationError, validates_schema
-from app.utils.storage import orchestration_store, orchestration_store_lock
-from app.utils.helpers import import_time, make_request
+
 from app.utils.error_handling import (
-    handle_exceptions,
     create_error_response,
     create_success_response,
+    handle_exceptions,
 )
+from app.utils.helpers import import_time, make_request
+from app.utils.storage import orchestration_store, orchestration_store_lock
 
 logger = logging.getLogger(__name__)
-
 
 class DataEntrySchema(Schema):
     """Schema for validating data entry parameters."""
@@ -81,9 +82,9 @@ class TransferProcessResource(Resource):
 
         api_key = request.headers.get('X-Api-Key')
         if not api_key:
-            return create_error_response('Missing API key', 401)
+            return create_error_response(message='Missing API key', details=401)
         if api_key != self.api_key:
-            return create_error_response('Invalid API key', 403)
+            return create_error_response(message='Invalid API key', details=403)
 
         orchestration_id = str(uuid.uuid4())
 
@@ -129,17 +130,20 @@ class TransferProcessResource(Resource):
 
             self._update_orchestration_status(
                 orchestration_id,
-                'COMPLETED',
+                status='COMPLETED',
                 service_response=service_response.get_json()['workflow'],
                 data_responses=data_responses
             )
 
-            return create_success_response({
-                'orchestration_id': orchestration_id,
-                'service': service_response.get_json()['workflow'],
-                'data': data_responses,
-                'status': 'COMPLETED'
-            })
+            return create_success_response(
+                data={
+                    'service': service_response.get_json()['workflow'],
+                    'data': data_responses,
+                    'status': 'COMPLETED'
+                },
+                orchestration_id=orchestration_id
+            )
+
 
         except ValidationError as ve:
             logger.error(f"Validation error: {ve.messages}")
@@ -172,12 +176,12 @@ class TransferProcessResource(Resource):
             request_data['type'] = 'edc-asset'
         """
 
-        print(f"Request data: {request_data}")
+        # print(f"Request data: {request_data}")
 
         try:
             response = make_request(
-                'post',
-                edc_url,
+                method='post',
+                url=edc_url,
                 json=request_data,
                 headers=self.headers,
                 timeout=self.timeout,
@@ -198,17 +202,17 @@ class TransferProcessResource(Resource):
             )
 
             return create_success_response({
-                'orchestration_id': orchestration_id,
                 'resource_id': resource_id,
                 'status': success_status,
-                'type': args.get('type', 'service')
+                # 'type': args.get('type', 'service'),
+                # 'orchestration_id': orchestration_id
             })
 
         except requests.HTTPError as exc:
             logger.error(f"EDC API error ({edc_url}): {exc.response.text}")
-            self._update_orchestration_status(orchestration_id, 'FAILED', error=exc.response.text)
+            self._update_orchestration_status(orchestration_id, status='FAILED', error=exc.response.text)
             return create_error_response(
-                "EDC API communication failed",
+                message="EDC API communication failed",
                 details=exc.response.text,
                 status_code=exc.response.status_code,
             )
@@ -221,12 +225,12 @@ class TransferProcessResource(Resource):
                 if attempt > 0:
                     time.sleep(self.data_address_delay)
 
-                response = make_request('get', url, headers=self.headers, timeout=self.timeout)
+                response = make_request(method='get', url=url, headers=self.headers, timeout=self.timeout)
                 response.raise_for_status()
 
                 self._update_orchestration_status(
                     orchestration_id,
-                    'DATA_ADDRESS_RETRIEVED',
+                    status='DATA_ADDRESS_RETRIEVED',
                     data_address=response.json()
                 )
                 return create_success_response(response.json())
@@ -235,9 +239,9 @@ class TransferProcessResource(Resource):
                 logger.error(f"Attempt {attempt + 1} failed: {exc}")
                 last_exception = exc
 
-        self._update_orchestration_status(orchestration_id, 'FAILED', error=str(last_exception))
+        self._update_orchestration_status(orchestration_id, status='FAILED', error=str(last_exception))
         return create_error_response(
-            "Data address retrieval failed",
+            message="Data address retrieval failed",
             details=str(last_exception),
             status_code=500
         )
