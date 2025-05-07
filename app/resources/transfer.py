@@ -18,6 +18,7 @@ from app.utils.storage import orchestration_store, orchestration_store_lock
 
 logger = logging.getLogger(__name__)
 
+
 class DataEntrySchema(Schema):
     """Schema for validating data entry parameters."""
     type = fields.Str(required=True, validate=lambda x: x in ["edc-asset"])
@@ -79,7 +80,6 @@ class TransferProcessResource(Resource):
     @handle_exceptions
     def post(self):
         logger.info("Processing combined transfer request")
-
         api_key = request.headers.get('X-Api-Key')
         if not api_key:
             return create_error_response(message='Missing API key', details=401)
@@ -87,7 +87,6 @@ class TransferProcessResource(Resource):
             return create_error_response(message='Invalid API key', details=403)
 
         orchestration_id = str(uuid.uuid4())
-
         try:
             data = self.schema.load(request.get_json())
             connector_address = data['connectorAddress']
@@ -106,6 +105,7 @@ class TransferProcessResource(Resource):
             # Process data entries
             data_responses = []
             for entry in data['data']:
+                # Initiate transfer process
                 response = self._handle_edc_request(
                     {**entry, 'type': 'edc-asset'},
                     edc_url=f"{connector_address}/api/management/v3/transferprocesses",
@@ -113,9 +113,26 @@ class TransferProcessResource(Resource):
                     transfer_type="HttpData-PULL",
                     success_status="ASSET_REGISTERED"
                 )
+
                 if response.status_code >= 400:
                     return response
-                data_responses.append(response.get_json()['workflow'])
+
+                workflow_data = response.get_json()['workflow']
+                transfer_id = workflow_data['resource_id']
+
+                # Retrieve data address for the initiated transfer
+                data_address_response = self._retrieve_data_address(
+                    connector_address,
+                    transfer_id,
+                    orchestration_id
+                )
+
+                if data_address_response.status_code >= 400:
+                    return data_address_response
+
+                # Add data address to the workflow data
+                workflow_data['access_info'] = data_address_response.get_json()['workflow']
+                data_responses.append(workflow_data)
 
             # Process service transfer
             service_response = self._handle_edc_request(
@@ -125,25 +142,41 @@ class TransferProcessResource(Resource):
                 transfer_type="HttpData-PULL",
                 success_status="SERVICE_INITIATED"
             )
+
             if service_response.status_code >= 400:
                 return service_response
+
+            # Retrieve data address for the service transfer
+            service_workflow = service_response.get_json()['workflow']
+            service_transfer_id = service_workflow['resource_id']
+
+            service_data_address_response = self._retrieve_data_address(
+                connector_address,
+                service_transfer_id,
+                orchestration_id
+            )
+
+            if service_data_address_response.status_code >= 400:
+                return service_data_address_response
+
+            # Add data address to the service workflow
+            service_workflow['access_info'] = service_data_address_response.get_json()['workflow']
 
             self._update_orchestration_status(
                 orchestration_id,
                 status='COMPLETED',
-                service_response=service_response.get_json()['workflow'],
+                service_response=service_workflow,
                 data_responses=data_responses
             )
 
             return create_success_response(
                 data={
-                    'service': service_response.get_json()['workflow'],
+                    'service': service_workflow,
                     'data': data_responses,
                     'status': 'COMPLETED'
                 },
                 orchestration_id=orchestration_id
             )
-
 
         except ValidationError as ve:
             logger.error(f"Validation error: {ve.messages}")
@@ -171,13 +204,6 @@ class TransferProcessResource(Resource):
         else:
             request_data["transferType"] = transfer_type
 
-        """
-        if args.get('type') == 'edc-asset':
-            request_data['type'] = 'edc-asset'
-        """
-
-        # print(f"Request data: {request_data}")
-
         try:
             response = make_request(
                 method='post',
@@ -186,8 +212,8 @@ class TransferProcessResource(Resource):
                 headers=self.headers,
                 timeout=self.timeout,
             )
-            response.raise_for_status()
 
+            response.raise_for_status()
             response_data = response.json()
             resource_id = response_data.get('@id')
 
@@ -204,8 +230,6 @@ class TransferProcessResource(Resource):
             return create_success_response({
                 'resource_id': resource_id,
                 'status': success_status,
-                # 'type': args.get('type', 'service'),
-                # 'orchestration_id': orchestration_id
             })
 
         except requests.HTTPError as exc:
@@ -218,6 +242,7 @@ class TransferProcessResource(Resource):
             )
 
     def _retrieve_data_address(self, connector_address: str, transfer_id: str, orchestration_id: str):
+        """Retrieve data address for a transfer process."""
         last_exception = None
         for attempt in range(self.data_address_max_retries):
             try:
@@ -233,6 +258,7 @@ class TransferProcessResource(Resource):
                     status='DATA_ADDRESS_RETRIEVED',
                     data_address=response.json()
                 )
+
                 return create_success_response(response.json())
 
             except Exception as exc:
