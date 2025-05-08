@@ -6,8 +6,8 @@ info:
     This API enables initiating combined service/data transfers and retrieving process status information.
   version: 1.0.0
 servers:
-  - url: /orchestrator
-    description: Base URL for all orchestrator endpoints
+  - url: /
+    description: Base URL for all endpoints
 
 components:
   securitySchemes:
@@ -213,7 +213,7 @@ components:
           description: Additional error details
 
 paths:
-  /transferprocesses:
+  /orchestrator/orchestrate:
     post:
       summary: Create a new combined service/data transfer
       description: Initiates a combined transfer process for services and data assets
@@ -269,7 +269,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /status:
+  /orchestrator/status:
     get:
       summary: Get status of all orchestration processes
       description: Retrieves status information for all orchestration processes
@@ -290,7 +290,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /status/{orchestrationId}:
+  /orchestrator/status/{orchestrationId}:
     get:
       summary: Get detailed status of a specific orchestration process
       description: Retrieves detailed status information for a specific orchestration process
