@@ -17,3 +17,6 @@ class Config:
 
     # Cache settings
     CACHE_TTL = int(os.environ.get('CACHE_TTL', 5))
+
+    # Storage API URL
+    STORAGE_API_URL = 'http://localhost:5001/api/v1/store'

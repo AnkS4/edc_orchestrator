@@ -50,7 +50,7 @@ def create_app():
     from app.resources.status import OrchestrationStatusResource, OrchestrationDetailResource
 
     # Transfer resources
-    api.add_resource(TransferProcessResource, '/orchestrator/transferprocesses')
+    api.add_resource(TransferProcessResource, '/orchestrator/orchestrate')
 
     # Data address resources
     # api.add_resource(DataAddressResource, '/orchestrator/edrs/<string:transfer_id>/dataaddress')

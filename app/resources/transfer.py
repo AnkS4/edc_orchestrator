@@ -3,8 +3,9 @@ import time
 import uuid
 from typing import Any
 
+import json
 import requests
-from flask import current_app, request
+from flask import current_app, request, Response
 from flask_restful import Resource
 from marshmallow import Schema, fields, ValidationError, validates_schema
 
@@ -54,8 +55,15 @@ class CombinedTransferSchema(Schema):
 
 
 class TransferProcessResource(Resource):
-    """Resource for handling combined service/data transfers."""
+    """Orchestrates EDC asset transfers and data address retrieval.
 
+    Handles combined service/data transfers through the Eclipse Dataspace
+    Connector API, managing the complete transfer lifecycle including:
+    - Transfer process initiation
+    - EDR data address retrieval
+    - Storage API integration
+    - Status tracking
+    """
     def __init__(self):
         self.timeout = current_app.config['REQUEST_TIMEOUT']
         self.api_key = current_app.config['EDC_API_KEY']
@@ -67,7 +75,14 @@ class TransferProcessResource(Resource):
         self.data_address_max_retries = current_app.config['DATA_ADDRESS_MAX_RETRIES']
         self.schema = CombinedTransferSchema()
 
-    def _update_orchestration_status(self, orchestration_id: str, status: str, **kwargs: Any):
+    def _update_orchestration_status(
+            self,
+            orchestration_id: str,
+            status: str,
+            **kwargs: Any
+    ):
+        """Update orchestration process status in shared storage."""
+
         with orchestration_store_lock:
             process = orchestration_store.get(orchestration_id)
             if process:
@@ -162,6 +177,17 @@ class TransferProcessResource(Resource):
             # Add data address to the service workflow
             service_workflow['access_info'] = service_data_address_response.get_json()['workflow']
 
+            # Send to storage API
+            storage_payload = {
+                'orchestration_id': orchestration_id,
+                'service_data': service_workflow,
+                'data_entries': data_responses
+            }
+            storage_response = self._send_to_storage(storage_payload)
+
+            if storage_response.status_code >= 400:
+                logger.error(f"Storage API failed: {storage_response.text}")
+
             self._update_orchestration_status(
                 orchestration_id,
                 status='COMPLETED',
@@ -185,6 +211,25 @@ class TransferProcessResource(Resource):
             logger.error(f"Combined transfer failed: {str(exc)}", exc_info=True)
             self._update_orchestration_status(orchestration_id, 'FAILED', error=str(exc))
             return create_error_response(str(exc), status_code=500)
+
+    # Add new helper method
+    def _send_to_storage(self, data):
+        """Send processed data to storage API"""
+        try:
+            response = requests.post(
+                current_app.config['STORAGE_API_URL'],
+                json=data,
+                headers={'Content-Type': 'application/json'},
+                timeout=5
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Storage API communication failed: {str(e)}")
+            return Response(
+                response=json.dumps({'error': 'Storage service unavailable'}),
+                status=503,
+                mimetype='application/json'
+            )
 
     def _handle_edc_request(self, args: dict, edc_url: str, orchestration_id: str,
                             transfer_type: str, success_status: str):
@@ -250,7 +295,12 @@ class TransferProcessResource(Resource):
                 if attempt > 0:
                     time.sleep(self.data_address_delay)
 
-                response = make_request(method='get', url=url, headers=self.headers, timeout=self.timeout)
+                response = make_request(
+                    method='get',
+                    url=url,
+                    headers=self.headers,
+                    timeout=self.timeout
+                )
                 response.raise_for_status()
 
                 self._update_orchestration_status(

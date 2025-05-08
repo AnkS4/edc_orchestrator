@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 
 import requests
 
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def import_time():
     """Helper function to get current time in UTC with timezone info."""
 
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def make_request(method, url, **kwargs):
