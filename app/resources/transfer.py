@@ -149,6 +149,21 @@ class TransferProcessResource(Resource):
                 workflow_data['access_info'] = data_address_response.get_json()['workflow']
                 data_responses.append(workflow_data)
 
+                print(workflow_data['access_info'])
+
+                # Download the data using the data address and Authorization header
+                authorization = request.headers.get('Authorization')
+                download_response = self._download_data(
+                    workflow_data['access_info'],
+                    authorization=authorization
+                )
+                if download_response.status_code >= 400:
+                    return download_response
+
+                # Attach downloaded data info
+                workflow_data['downloaded_data'] = download_response.get_json()['workflow']
+                data_responses.append(workflow_data)
+
             """
             # Process service transfer
             service_response = self._handle_edc_request(
@@ -325,3 +340,40 @@ class TransferProcessResource(Resource):
             details=str(last_exception),
             status_code=500
         )
+
+    def _download_data(self, data_address_info: dict, authorization: str = None):
+        """
+        Download the data from the data address endpoint.
+        :param data_address_info: The dictionary returned by _retrieve_data_address, expected to contain the data endpoint.
+        :param authorization: The Authorization header value (e.g., 'Bearer <token>').
+        :return: Response object with the downloaded data or error.
+        """
+        try:
+            # Extract the endpoint from the data address info
+            endpoint = data_address_info.get('endpoint') or data_address_info.get('url')
+            if not endpoint:
+                raise ValueError("Data address does not contain a valid endpoint URL")
+
+            headers = {}
+            if authorization:
+                headers['Authorization'] = authorization  # e.g., 'Bearer <token>'
+
+            # Download file in streaming mode for large files
+            response = requests.get(endpoint, headers=headers, timeout=self.timeout, stream=True)
+            response.raise_for_status()
+
+            # For demonstration, we read the first 1MB (customize as needed)
+            content = response.raw.read(1024 * 1024)
+            content_type = response.headers.get('Content-Type')
+
+            return create_success_response(
+                data={'content': content.hex(), 'content_type': content_type},
+                status_code=200
+            )
+        except Exception as exc:
+            logger.error(f"Data download failed: {str(exc)}")
+            return create_error_response(
+                message="Data download failed",
+                details=str(exc),
+                status_code=500
+            )
