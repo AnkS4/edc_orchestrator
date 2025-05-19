@@ -121,6 +121,7 @@ class TransferProcessResource(Resource):
             data_responses = []
             for entry in data['data']:
                 # Initiate transfer process
+                logger.info(f"Initiating EDC transfer process for Contract ID: {entry['contractId']}")
                 response = self._handle_edc_request(
                     {**entry, 'type': 'edc-asset'},
                     edc_url=f"{connector_address}/api/management/v3/transferprocesses",
@@ -149,10 +150,11 @@ class TransferProcessResource(Resource):
                 workflow_data['access_info'] = data_address_response.get_json()['workflow']
                 data_responses.append(workflow_data)
 
-                print(workflow_data['access_info'])
+                # print(workflow_data['access_info'])
 
-                # Download the data using the data address and Authorization header
-                authorization = data_address_response.get('Authorization')
+                # Save the Authorization header
+                authorization = workflow_data['access_info']['authorization']
+
                 download_response = self._download_data(
                     workflow_data['access_info'],
                     authorization=authorization
@@ -307,6 +309,7 @@ class TransferProcessResource(Resource):
 
     def _retrieve_data_address(self, connector_address: str, transfer_id: str, orchestration_id: str):
         """Retrieve data address for a transfer process."""
+        logger.info(f"Processing EDR DataAddress retrieval for Transfer ID: {transfer_id}")
         last_exception = None
         for attempt in range(self.data_address_max_retries):
             try:
@@ -348,15 +351,16 @@ class TransferProcessResource(Resource):
         :param authorization: The Authorization header value (e.g., 'Bearer <token>').
         :return: Response object with the downloaded data or error.
         """
+        logger.info(f"Initiating data download")
         try:
             # Extract the endpoint from the data address info
-            endpoint = data_address_info.get('endpoint') or data_address_info.get('url')
+            endpoint = data_address_info.get('endpoint')
             if not endpoint:
                 raise ValueError("Data address does not contain a valid endpoint URL")
 
             headers = {}
             if authorization:
-                headers['Authorization'] = authorization  # e.g., 'Bearer <token>'
+                headers['Authorization'] = authorization
 
             # Download file in streaming mode for large files
             response = requests.get(endpoint, headers=headers, timeout=self.timeout, stream=True)
