@@ -152,7 +152,7 @@ class TransferProcessResource(Resource):
                 print(workflow_data['access_info'])
 
                 # Download the data using the data address and Authorization header
-                authorization = request.headers.get('Authorization')
+                authorization = data_address_response.get('Authorization')
                 download_response = self._download_data(
                     workflow_data['access_info'],
                     authorization=authorization
