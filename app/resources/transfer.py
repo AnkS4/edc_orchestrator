@@ -3,9 +3,9 @@ import time
 import uuid
 from typing import Any
 
-import json
+# import json
 import requests
-from flask import current_app, request, Response
+from flask import current_app, request  # Response
 from flask_restful import Resource
 from marshmallow import Schema, fields, ValidationError, validates_schema
 
@@ -45,7 +45,7 @@ class ServiceSchema(Schema):
 
 class CombinedTransferSchema(Schema):
     """Schema for validating combined transfer requests."""
-    service = fields.Nested(ServiceSchema, required=True)
+    service = fields.Nested(ServiceSchema, required=False)
     data = fields.List(
         fields.Nested(DataEntrySchema),
         required=True,
@@ -149,6 +149,7 @@ class TransferProcessResource(Resource):
                 workflow_data['access_info'] = data_address_response.get_json()['workflow']
                 data_responses.append(workflow_data)
 
+            """
             # Process service transfer
             service_response = self._handle_edc_request(
                 data['service'],
@@ -186,18 +187,19 @@ class TransferProcessResource(Resource):
             storage_response = self._send_to_storage(storage_payload)
 
             if storage_response.status_code >= 400:
-                logger.error(f"Storage API failed: {storage_response.text}")
+                logger.error(f"Storage API failed: {storage_response.text}") 
+            """
 
             self._update_orchestration_status(
                 orchestration_id,
                 status='COMPLETED',
-                service_response=service_workflow,
+                # service_response=service_workflow,
                 data_responses=data_responses
             )
 
             return create_success_response(
                 data={
-                    'service': service_workflow,
+                    # 'service': service_workflow,
                     'data': data_responses,
                     'status': 'COMPLETED'
                 },
@@ -212,9 +214,10 @@ class TransferProcessResource(Resource):
             self._update_orchestration_status(orchestration_id, 'FAILED', error=str(exc))
             return create_error_response(str(exc), status_code=500)
 
+    """
     # Add new helper method
     def _send_to_storage(self, data):
-        """Send processed data to storage API"""
+        # Send processed data to storage API
         try:
             response = requests.post(
                 current_app.config['STORAGE_API_URL'],
@@ -230,6 +233,7 @@ class TransferProcessResource(Resource):
                 status=503,
                 mimetype='application/json'
             )
+    """
 
     def _handle_edc_request(self, args: dict, edc_url: str, orchestration_id: str,
                             transfer_type: str, success_status: str):
