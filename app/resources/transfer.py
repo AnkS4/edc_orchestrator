@@ -64,6 +64,8 @@ class TransferProcessResource(Resource):
     - Contract negotiation initialization
     - Transfer process management
     - EDR (Endpoint Data Reference) retrieval
+    - Data download
+    - Saving data to files
     - Data plane communication
     - Status tracking and storage integration
 
@@ -117,24 +119,8 @@ class TransferProcessResource(Resource):
         Request Headers:
             X-Api-Key: Authentication token
 
-        Request Body (JSON):
-            {
-                "connectorAddress": "http://edc-provider:8080",
-                "data": [
-                    {
-                        "type": "edc-asset",
-                        "counterPartyAddress": "http://provider-connector",
-                        "contractId": "contract-123",
-                        "connectorId": "provider-connector"
-                    }
-                ]
-            }
-
-        Responses:
-            200: Success with orchestration ID and transfer results
-            401: Missing/invalid API key
-            400: Invalid request format
-            500: Internal server error
+        Returns:
+            JSON response with transfer results or error details
         """
         logger.info("Processing combined transfer request")
         api_key = request.headers.get('X-Api-Key')
@@ -239,47 +225,6 @@ class TransferProcessResource(Resource):
                         f"Data storage failed for contract {entry['contractId']}",
                         status_code=500
                     )
-
-            """
-            # Process service transfer
-            service_response = self._handle_edc_request(
-                data['service'],
-                edc_url=f"{connector_address}/api/management/v3/transferprocesses",
-                orchestration_id=orchestration_id,
-                transfer_type="HttpData-PULL",
-                success_status="SERVICE_INITIATED"
-            )
-
-            if service_response.status_code >= 400:
-                return service_response
-
-            # Retrieve data address for the service transfer
-            service_workflow = service_response.get_json()['workflow']
-            service_transfer_id = service_workflow['resource_id']
-
-            service_data_address_response = self._retrieve_data_address(
-                connector_address,
-                service_transfer_id,
-                orchestration_id
-            )
-
-            if service_data_address_response.status_code >= 400:
-                return service_data_address_response
-
-            # Add data address to the service workflow
-            service_workflow['access_info'] = service_data_address_response.get_json()['workflow']
-
-            # Send to storage API
-            storage_payload = {
-                'orchestration_id': orchestration_id,
-                'service_data': service_workflow,
-                'data_entries': data_responses
-            }
-            storage_response = self._send_to_storage(storage_payload)
-
-            if storage_response.status_code >= 400:
-                logger.error(f"Storage API failed: {storage_response.text}") 
-            """
 
             self._update_orchestration_status(
                 orchestration_id,
