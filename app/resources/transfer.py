@@ -4,6 +4,7 @@ import uuid
 from typing import Any
 
 # import json
+from urllib.parse import urlparse
 import requests
 from flask import current_app, request  # Response
 from flask_restful import Resource
@@ -105,6 +106,8 @@ class TransferProcessResource(Resource):
         try:
             data = self.schema.load(request.get_json())
             connector_address = data['connectorAddress']
+            parsed_url = urlparse(connector_address)
+            connector_hostname = parsed_url.hostname
 
             with orchestration_store_lock:
                 orchestration_store[orchestration_id] = {
@@ -156,7 +159,8 @@ class TransferProcessResource(Resource):
                 authorization = workflow_data['access_info']['authorization']
 
                 download_response = self._download_data(
-                    workflow_data['access_info'],
+                    url=f"http://{connector_hostname}/provider-qna/public/api/public",
+                    data_address_info=workflow_data['access_info'],
                     authorization=authorization
                 )
                 if download_response.status_code >= 400:
@@ -344,7 +348,7 @@ class TransferProcessResource(Resource):
             status_code=500
         )
 
-    def _download_data(self, data_address_info: dict, authorization: str = None):
+    def _download_data(self, url: str, data_address_info: dict, authorization: str = None):
         """
         Download the data from the data address endpoint.
         :param data_address_info: The dictionary returned by _retrieve_data_address, expected to contain the data endpoint.
@@ -363,7 +367,7 @@ class TransferProcessResource(Resource):
                 headers['Authorization'] = authorization
 
             # Download file in streaming mode for large files
-            response = requests.get(endpoint, headers=headers, timeout=self.timeout, stream=True)
+            response = requests.get(url, endpoint, headers=headers, timeout=self.timeout)
             response.raise_for_status()
 
             # For demonstration, we read the first 1MB (customize as needed)
