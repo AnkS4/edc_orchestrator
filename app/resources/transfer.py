@@ -179,7 +179,7 @@ class TransferProcessResource(Resource):
 
                 # workflow_data = response.get_json()['workflow']
                 response_data = response.get_json()
-                print(response_data)
+                # print(response_data)
                 transfer_id = response_data['response']['resource_id']
 
                 # Retrieve data address for the initiated transfer
@@ -208,7 +208,7 @@ class TransferProcessResource(Resource):
 
                 # print(data_address_response['response'])
                 # print(type(data_address_response['response']))
-                print(f"http://{connector_hostname}/provider-qna/public/api/public")
+                # print(f"http://{connector_hostname}/provider-qna/public/api/public")
 
                 # auth_token = data_address_response['response'].get('authorization')
                 # if not (auth_token):
@@ -238,7 +238,7 @@ class TransferProcessResource(Resource):
                 # Attach downloaded data info
                 # workflow_data['downloaded_data'] = download_response.get_json()['workflow']
                 # data_responses.append(workflow_data)
-                download_responses.append(download_response.get_json())
+                download_responses.append(download_response.get_json()['response']['content'])
 
             """
             # Process service transfer
@@ -291,7 +291,7 @@ class TransferProcessResource(Resource):
             return create_success_response(
                 data={
                     # 'service': service_workflow,
-                    'data': data_responses,
+                    'data': download_responses,
                     'status': 'COMPLETED'
                 },
                 orchestration_id=orchestration_id
@@ -460,8 +460,8 @@ class TransferProcessResource(Resource):
             else:
                 data = content.hex()  # For binary safety
 
-            print("content: ", data)
-            print("content type: ", content_type)
+            # print("content: ", data)
+            # print("content type: ", content_type)
 
             return create_success_response(
                 data={'content': data, 'content_type': content_type},
