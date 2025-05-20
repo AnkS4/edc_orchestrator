@@ -11,14 +11,17 @@ def create_success_response(data, status_code=200, orchestration_id=None):
     """Creates a standardized success response with optional orchestration_id at the top level."""
     response = {
         'status': 'SUCCESS',
-        'status_code': status_code
+        'status_code': status_code,
+        'response': data
     }
 
+    """
     if orchestration_id is not None:
         response['orchestration_id'] = orchestration_id
 
     if data is not None:
         response['workflow'] = data
+    """
 
     return jsonify(response)
 

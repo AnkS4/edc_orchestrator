@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+# from asyncio import ensure_future
 from typing import Any
 
 # import json
@@ -122,6 +123,7 @@ class TransferProcessResource(Resource):
 
             # Process data entries
             data_responses = []
+            download_responses = []
             for entry in data['data']:
                 # Initiate transfer process
                 logger.info(f"Initiating EDC transfer process for Contract ID: {entry['contractId']}")
@@ -136,8 +138,10 @@ class TransferProcessResource(Resource):
                 if response.status_code >= 400:
                     return response
 
-                workflow_data = response.get_json()['workflow']
-                transfer_id = workflow_data['resource_id']
+                # workflow_data = response.get_json()['workflow']
+                response_data = response.get_json()
+                print(response_data)
+                transfer_id = response_data['response']['resource_id']
 
                 # Retrieve data address for the initiated transfer
                 data_address_response = self._retrieve_data_address(
@@ -150,25 +154,54 @@ class TransferProcessResource(Resource):
                     return data_address_response
 
                 # Add data address to the workflow data
-                workflow_data['access_info'] = data_address_response.get_json()['workflow']
-                data_responses.append(workflow_data)
+                # workflow_data['access_info'] = data_address_response.get_json()['workflow']
+                # data_responses.append(workflow_data)
+
+                # Extract critical components with validation
+                edr_data = data_address_response.get_json()['response']
+                logger.debug("EDR Data Received", extra={'edr_data': edr_data})
 
                 # print(workflow_data['access_info'])
 
                 # Save the Authorization header
-                authorization = workflow_data['access_info']['authorization']
+                # authorization = workflow_data['access_info']['authorization']
+                # authorization = data_address_response['authorization']
+
+                # print(data_address_response['response'])
+                # print(type(data_address_response['response']))
+                print(f"http://{connector_hostname}/provider-qna/public/api/public")
+
+                # auth_token = data_address_response['response'].get('authorization')
+                # if not (auth_token):
+                #     raise ValueError("Invalid EDR data address structure")
+
+                if not edr_data.get('authorization'):
+                    return create_error_response("Invalid EDR data","Missing authorization token",500)
+
+                auth_token = edr_data.get('authorization')
+                auth_type = edr_data.get('authType', 'bearer')
+                endpoint = edr_data.get('endpoint', 'http://provider-qna-dataplane:11002/api/public')
+
+                headers = {
+                    # 'endpoint': endpoint,
+                    'Authorization': auth_token,
+                    # 'authType': auth_type
+                }
 
                 download_response = self._download_data(
                     url=f"http://{connector_hostname}/provider-qna/public/api/public",
-                    data_address_info=workflow_data['access_info'],
-                    authorization=authorization
+                    # headers=data_address_response['response']
+                    headers=headers
                 )
                 if download_response.status_code >= 400:
                     return download_response
 
+                print(download_response.status_code)
+
                 # Attach downloaded data info
-                workflow_data['downloaded_data'] = download_response.get_json()['workflow']
-                data_responses.append(workflow_data)
+                # workflow_data['downloaded_data'] = download_response.get_json()['workflow']
+                # data_responses.append(workflow_data)
+                download_responses.append(download_response.get_json())
 
             """
             # Process service transfer
@@ -348,7 +381,8 @@ class TransferProcessResource(Resource):
             status_code=500
         )
 
-    def _download_data(self, url: str, data_address_info: dict, authorization: str = None):
+    # def _download_data(self, url: str, data_address_info: dict, authorization: str = None):
+    def _download_data(self, url: str, headers: dict):
         """
         Download the data from the data address endpoint.
         :param data_address_info: The dictionary returned by _retrieve_data_address, expected to contain the data endpoint.
@@ -357,25 +391,34 @@ class TransferProcessResource(Resource):
         """
         logger.info(f"Initiating data download")
         try:
+            """
             # Extract the endpoint from the data address info
-            endpoint = data_address_info.get('endpoint')
+            endpoint = headers.get('endpoint')
             if not endpoint:
                 raise ValueError("Data address does not contain a valid endpoint URL")
 
             headers = {}
             if authorization:
-                headers['Authorization'] = authorization
+                headers['Authorization'] = authorization    
+            """
 
             # Download file in streaming mode for large files
-            response = requests.get(url, endpoint, headers=headers, timeout=self.timeout)
+            # response = requests.get(url, endpoint, headers=headers, timeout=self.timeout)
+
+            # print(headers)
+            # print(f"url={url}, headers={headers}")
+
+            response = requests.get(url=url, headers=headers, timeout=self.timeout)  # stream=True
             response.raise_for_status()
 
             # For demonstration, we read the first 1MB (customize as needed)
-            content = response.raw.read(1024 * 1024)
-            content_type = response.headers.get('Content-Type')
+            # content = response.raw.read(1024 * 1024)
+            # content_type = response.headers.get('Content-Type')
+
+            # print(response.json())
 
             return create_success_response(
-                data={'content': content.hex(), 'content_type': content_type},
+                data={'content': response.json()},
                 status_code=200
             )
         except Exception as exc:
