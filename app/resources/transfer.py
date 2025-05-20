@@ -1,10 +1,11 @@
 import logging
 import time
 import uuid
-# from asyncio import ensure_future
 from typing import Any
+import os
+from datetime import datetime
+import json
 
-# import json
 from urllib.parse import urlparse
 import requests
 from flask import current_app, request  # Response
@@ -162,7 +163,7 @@ class TransferProcessResource(Resource):
 
             # Process data entries
             data_responses = []
-            download_responses = []
+            # download_responses = []
             for entry in data['data']:
                 # Initiate transfer process
                 logger.info(f"Initiating EDC transfer process for Contract ID: {entry['contractId']}")
@@ -177,7 +178,6 @@ class TransferProcessResource(Resource):
                 if response.status_code >= 400:
                     return response
 
-                # workflow_data = response.get_json()['workflow']
                 response_data = response.get_json()
                 # print(response_data)
                 transfer_id = response_data['response']['resource_id']
@@ -192,27 +192,9 @@ class TransferProcessResource(Resource):
                 if data_address_response.status_code >= 400:
                     return data_address_response
 
-                # Add data address to the workflow data
-                # workflow_data['access_info'] = data_address_response.get_json()['workflow']
-                # data_responses.append(workflow_data)
-
                 # Extract critical components with validation
                 edr_data = data_address_response.get_json()['response']
                 logger.debug("EDR Data Received", extra={'edr_data': edr_data})
-
-                # print(workflow_data['access_info'])
-
-                # Save the Authorization header
-                # authorization = workflow_data['access_info']['authorization']
-                # authorization = data_address_response['authorization']
-
-                # print(data_address_response['response'])
-                # print(type(data_address_response['response']))
-                # print(f"http://{connector_hostname}/provider-qna/public/api/public")
-
-                # auth_token = data_address_response['response'].get('authorization')
-                # if not (auth_token):
-                #     raise ValueError("Invalid EDR data address structure")
 
                 if not edr_data.get('authorization'):
                     return create_error_response("Invalid EDR data","Missing authorization token",500)
@@ -222,23 +204,41 @@ class TransferProcessResource(Resource):
                 endpoint = edr_data.get('endpoint', 'http://provider-qna-dataplane:11002/api/public')
 
                 headers = {
-                    # 'endpoint': endpoint,
                     'Authorization': auth_token,
-                    # 'authType': auth_type
+                    'endpoint': endpoint,
+                    'authType': auth_type
                 }
 
                 download_response = self._download_data(
                     url=f"http://{connector_hostname}/provider-qna/public/api/public",
-                    # headers=data_address_response['response']
                     headers=headers
                 )
                 if download_response.status_code >= 400:
                     return download_response
 
                 # Attach downloaded data info
-                # workflow_data['downloaded_data'] = download_response.get_json()['workflow']
-                # data_responses.append(workflow_data)
-                download_responses.append(download_response.get_json()['response']['content'])
+                # download_responses.append(download_response.get_json()['response']['content'])
+
+                # In the post() method, replace:
+                # download_responses.append(download_response.get_json()['response']['content'])
+
+                content = download_response.get_json()['response']['content']
+                try:
+                    file_path = self._save_data_content(
+                        content,
+                        filename_prefix=f"contract_{entry['contractId']}"
+                    )
+                    data_responses.append({
+                        'contract_id': entry['contractId'],
+                        'storage_path': file_path,
+                        'status': 'SAVED'
+                    })
+                except IOError as exc:
+                    logger.error(f"Failed to save data for contract {entry['contractId']}: {exc}")
+                    return create_error_response(
+                        f"Data storage failed for contract {entry['contractId']}",
+                        status_code=500
+                    )
 
             """
             # Process service transfer
@@ -284,15 +284,12 @@ class TransferProcessResource(Resource):
             self._update_orchestration_status(
                 orchestration_id,
                 status='COMPLETED',
-                # service_response=service_workflow,
                 data_responses=data_responses
             )
 
             return create_success_response(
                 data={
-                    # 'service': service_workflow,
-                    'data': download_responses,
-                    'status': 'COMPLETED'
+                'status': 200
                 },
                 orchestration_id=orchestration_id
             )
@@ -367,10 +364,13 @@ class TransferProcessResource(Resource):
                 edc_response=response_data,
             )
 
-            return create_success_response({
+            return create_success_response(
+                data={
                 'resource_id': resource_id,
-                'status': success_status,
-            })
+                'data': response_data,
+                'status': success_status
+                }
+            )
 
         except requests.HTTPError as exc:
             logger.error(f"EDC API error ({edc_url}): {exc.response.text}")
@@ -418,7 +418,6 @@ class TransferProcessResource(Resource):
             status_code=500
         )
 
-    # def _download_data(self, url: str, data_address_info: dict, authorization: str = None):
     def _download_data(self, url: str, headers: dict):
         """Execute data retrieval from provider data plane.
 
@@ -475,3 +474,45 @@ class TransferProcessResource(Resource):
                 details=str(exc),
                 status_code=500
             )
+
+    def _save_data_content(self, content, filename_prefix="data", directory=None):
+        """Save downloaded content to persistent storage with proper serialization."""
+        try:
+            save_dir = directory or current_app.config.get('DATA_STORAGE_PATH', './data')
+            os.makedirs(save_dir, exist_ok=True)
+
+            # Serialize content based on type
+            if isinstance(content, (dict, list)):
+                file_ext = 'json'
+                serialized = json.dumps(content, indent=2)
+                write_mode = 'w'
+            elif isinstance(content, bytes):
+                file_ext = 'dat'
+                serialized = content
+                write_mode = 'wb'
+            else:  # Assume string-like
+                file_ext = 'txt'
+                serialized = str(content)
+                write_mode = 'w'
+
+            # Generate filename with type indicator
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f"{filename_prefix}_{timestamp}_{uuid.uuid4().hex[:6]}.{file_ext}"
+            file_path = os.path.join(save_dir, filename)
+
+            with open(file_path, write_mode) as f:
+                f.write(serialized)
+
+            logger.info("Data saved successfully",
+                        extra={'path': file_path, 'size': os.path.getsize(file_path)})
+            return file_path
+
+        except json.JSONDecodeError as jde:
+            logger.error("JSON serialization failed", exc_info=True)
+            raise ValueError("Invalid JSON content") from jde
+        except TypeError as te:
+            logger.error("Type mismatch during serialization", exc_info=True)
+            raise ValueError(f"Unsupported content type: {type(content)}") from te
+        except Exception as exc:
+            logger.error("Data storage failed", exc_info=True)
+            raise
