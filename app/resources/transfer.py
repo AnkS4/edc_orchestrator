@@ -57,14 +57,19 @@ class CombinedTransferSchema(Schema):
 
 
 class TransferProcessResource(Resource):
-    """Orchestrates EDC asset transfers and data address retrieval.
+    """Orchestrates EDC asset transfers and data retrieval through Dataspace Protocol.
 
-    Handles combined service/data transfers through the Eclipse Dataspace
-    Connector API, managing the complete transfer lifecycle including:
-    - Transfer process initiation
-    - EDR data address retrieval
-    - Storage API integration
-    - Status tracking
+    Implements the full transfer lifecycle:
+    - Contract negotiation initialization
+    - Transfer process management
+    - EDR (Endpoint Data Reference) retrieval
+    - Data plane communication
+    - Status tracking and storage integration
+
+    Attributes:
+        timeout: Request timeout in seconds from app config
+        api_key: EDC API key for authentication
+        headers: Default headers for EDC API requests
     """
     def __init__(self):
         self.timeout = current_app.config['REQUEST_TIMEOUT']
@@ -83,7 +88,15 @@ class TransferProcessResource(Resource):
             status: str,
             **kwargs: Any
     ):
-        """Update orchestration process status in shared storage."""
+        """Update orchestration process status in shared storage.
+
+        Args:
+            orchestration_id: UUID identifying the orchestration process
+            status: Current status (INITIALIZING|ASSET_REGISTERED|COMPLETED|FAILED)
+            **kwargs: Additional process metadata to store
+
+        Thread-safe operation using orchestration_store_lock.
+        """
 
         with orchestration_store_lock:
             process = orchestration_store.get(orchestration_id)
@@ -96,6 +109,32 @@ class TransferProcessResource(Resource):
 
     @handle_exceptions
     def post(self):
+        """Handle combined transfer request.
+
+        Endpoint: POST /orchestrator/orchestrate
+
+        Request Headers:
+            X-Api-Key: Authentication token
+
+        Request Body (JSON):
+            {
+                "connectorAddress": "http://edc-provider:8080",
+                "data": [
+                    {
+                        "type": "edc-asset",
+                        "counterPartyAddress": "http://provider-connector",
+                        "contractId": "contract-123",
+                        "connectorId": "provider-connector"
+                    }
+                ]
+            }
+
+        Responses:
+            200: Success with orchestration ID and transfer results
+            401: Missing/invalid API key
+            400: Invalid request format
+            500: Internal server error
+        """
         logger.info("Processing combined transfer request")
         api_key = request.headers.get('X-Api-Key')
         if not api_key:
@@ -195,8 +234,6 @@ class TransferProcessResource(Resource):
                 )
                 if download_response.status_code >= 400:
                     return download_response
-
-                print(download_response.status_code)
 
                 # Attach downloaded data info
                 # workflow_data['downloaded_data'] = download_response.get_json()['workflow']
@@ -383,13 +420,22 @@ class TransferProcessResource(Resource):
 
     # def _download_data(self, url: str, data_address_info: dict, authorization: str = None):
     def _download_data(self, url: str, headers: dict):
-        """
-        Download the data from the data address endpoint.
-        :param data_address_info: The dictionary returned by _retrieve_data_address, expected to contain the data endpoint.
-        :param authorization: The Authorization header value (e.g., 'Bearer <token>').
-        :return: Response object with the downloaded data or error.
+        """Execute data retrieval from provider data plane.
+
+        Args:
+            url: Provider endpoint URL from EDR
+            headers: HTTP headers including Authorization token
+
+        Returns:
+            Response: Success with downloaded data or error details
+
+        Raises:
+            ConnectionError: Network communication failure
+            Timeout: Request timeout
+            HTTPError: Non-2xx response from provider
         """
         logger.info(f"Initiating data download")
+
         try:
             """
             # Extract the endpoint from the data address info
@@ -402,25 +448,26 @@ class TransferProcessResource(Resource):
                 headers['Authorization'] = authorization    
             """
 
-            # Download file in streaming mode for large files
-            # response = requests.get(url, endpoint, headers=headers, timeout=self.timeout)
-
-            # print(headers)
-            # print(f"url={url}, headers={headers}")
-
             response = requests.get(url=url, headers=headers, timeout=self.timeout)  # stream=True
             response.raise_for_status()
 
-            # For demonstration, we read the first 1MB (customize as needed)
-            # content = response.raw.read(1024 * 1024)
-            # content_type = response.headers.get('Content-Type')
+            content = response.content
+            content_type = response.headers.get('Content-Type')
 
-            # print(response.json())
+            # Handle both JSON and binary data
+            if 'application/json' in content_type:
+                data = response.json()
+            else:
+                data = content.hex()  # For binary safety
+
+            print("content: ", data)
+            print("content type: ", content_type)
 
             return create_success_response(
-                data={'content': response.json()},
+                data={'content': data, 'content_type': content_type},
                 status_code=200
             )
+
         except Exception as exc:
             logger.error(f"Data download failed: {str(exc)}")
             return create_error_response(
