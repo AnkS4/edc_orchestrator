@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 import json
 
+import threading
 from urllib.parse import urlparse
 import requests
 from flask import current_app, request  # Response
@@ -61,8 +62,8 @@ class TransferProcessResource(Resource):
     """Orchestrates EDC asset transfers and data retrieval through Dataspace Protocol.
 
     Implements the full transfer lifecycle:
-    - Contract negotiation initialization
-    - Transfer process management
+    - Transfer initialization
+    - Get transfer process
     - EDR (Endpoint Data Reference) retrieval
     - Data download
     - Saving data to files
@@ -100,7 +101,6 @@ class TransferProcessResource(Resource):
 
         Thread-safe operation using orchestration_store_lock.
         """
-
         with orchestration_store_lock:
             process = orchestration_store.get(orchestration_id)
             if process:
@@ -122,7 +122,8 @@ class TransferProcessResource(Resource):
         Returns:
             JSON response with transfer results or error details
         """
-        logger.info("Processing combined transfer request")
+        logger.info("Processing transfer request")
+
         api_key = request.headers.get('X-Api-Key')
         if not api_key:
             return create_error_response(message='Missing API key', details=401)
@@ -130,26 +131,34 @@ class TransferProcessResource(Resource):
             return create_error_response(message='Invalid API key', details=403)
 
         orchestration_id = str(uuid.uuid4())
+
         try:
             data = self.schema.load(request.get_json())
-            connector_address = data['connectorAddress']
-            parsed_url = urlparse(connector_address)
-            connector_hostname = parsed_url.hostname
 
+            # Store initial state
             with orchestration_store_lock:
-                    orchestration_store[orchestration_id] = {
-                    'status': 'INITIALIZING',
-                    'type': 'combined',
-                    'original_request': data,
+                orchestration_store[orchestration_id] = {
+                    'status': 'QUEUED',
                     'created_at': import_time(),
-                    'updated_at': import_time(),
+                    'original_request': data,
                     'transfer_id': None,
                     'data_entries': []
                 }
 
+            # Get the actual Flask application instance
+            # noinspection PyProtectedMember
+            app = current_app._get_current_object()  # Bypass proxy for thread safety
+
+            # Start background thread
+            thread = threading.Thread(
+                target=self.process_transfer_async,
+                args=(app, data, orchestration_id)
+            )
+            thread.start()
+
+            """"
             # Process data entries
             data_responses = []
-            # download_responses = []
             for entry in data['data']:
                 # Initiate transfer process
                 logger.info(f"Initiating EDC transfer process for Contract ID: {entry['contractId']}")
@@ -202,12 +211,6 @@ class TransferProcessResource(Resource):
                 if download_response.status_code >= 400:
                     return download_response
 
-                # Attach downloaded data info
-                # download_responses.append(download_response.get_json()['response']['content'])
-
-                # In the post() method, replace:
-                # download_responses.append(download_response.get_json()['response']['content'])
-
                 content = download_response.get_json()['response']['content']
                 try:
                     file_path = self._save_data_content(
@@ -225,7 +228,8 @@ class TransferProcessResource(Resource):
                         f"Data storage failed for transfer {transfer_id}",
                         status_code=500
                     )
-
+            
+            
             self._update_orchestration_status(
                 orchestration_id,
                 status='COMPLETED',
@@ -240,6 +244,17 @@ class TransferProcessResource(Resource):
                 'status_code': 200,
                 'data_responses': data_responses
                 }
+            )
+            """
+
+            # Immediate response
+            return create_success_response(
+                data={
+                    'orchestration_id': orchestration_id,
+                    'status': 'QUEUED',
+                    'message': 'Transfer processing started'
+                },
+                orchestration_id=orchestration_id
             )
 
         except ValidationError as ve:
@@ -411,42 +426,148 @@ class TransferProcessResource(Resource):
 
     def _save_data_content(self, content, filename_prefix="data", directory=None):
         """Save downloaded content to persistent storage with proper serialization."""
-        try:
-            save_dir = directory or current_app.config.get('DATA_STORAGE_PATH', './data')
-            os.makedirs(save_dir, exist_ok=True)
+        with current_app.app_context():
+            try:
+                save_dir = directory or current_app.config.get('DATA_STORAGE_PATH', './data')
+                os.makedirs(save_dir, exist_ok=True)
 
-            # Serialize content based on type
-            if isinstance(content, (dict, list)):
-                file_ext = 'json'
-                serialized = json.dumps(content, indent=2)
-                write_mode = 'w'
-            elif isinstance(content, bytes):
-                file_ext = 'dat'
-                serialized = content
-                write_mode = 'wb'
-            else:  # Assume string-like
-                file_ext = 'txt'
-                serialized = str(content)
-                write_mode = 'w'
+                # Serialize content based on type
+                if isinstance(content, (dict, list)):
+                    file_ext = 'json'
+                    serialized = json.dumps(content, indent=2)
+                    write_mode = 'w'
+                elif isinstance(content, bytes):
+                    file_ext = 'dat'
+                    serialized = content
+                    write_mode = 'wb'
+                else:  # Assume string-like
+                    file_ext = 'txt'
+                    serialized = str(content)
+                    write_mode = 'w'
 
-            # Generate filename with type indicator
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            filename = f"{filename_prefix}_{timestamp}_{uuid.uuid4().hex[:6]}.{file_ext}"
-            file_path = os.path.join(save_dir, filename)
+                # Generate filename with type indicator
+                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                filename = f"{filename_prefix}_{timestamp}_{uuid.uuid4().hex[:6]}.{file_ext}"
+                file_path = os.path.join(save_dir, filename)
 
-            with open(file_path, write_mode) as f:
-                f.write(serialized)
+                with open(file_path, write_mode) as f:
+                    f.write(serialized)
 
-            logger.info("Data saved successfully",
-                        extra={'path': file_path, 'size': os.path.getsize(file_path)})
-            return file_path
+                logger.info("Data saved successfully",
+                            extra={'path': file_path, 'size': os.path.getsize(file_path)})
+                return file_path
 
-        except json.JSONDecodeError as jde:
-            logger.error("JSON serialization failed", exc_info=True)
-            raise ValueError("Invalid JSON content") from jde
-        except TypeError as te:
-            logger.error("Type mismatch during serialization", exc_info=True)
-            raise ValueError(f"Unsupported content type: {type(content)}") from te
-        except Exception as exc:
-            logger.error("Data storage failed", exc_info=True)
-            raise
+            except json.JSONDecodeError as jde:
+                logger.error("JSON serialization failed", exc_info=True)
+                raise ValueError("Invalid JSON content") from jde
+            except TypeError as te:
+                logger.error("Type mismatch during serialization", exc_info=True)
+                raise ValueError(f"Unsupported content type: {type(content)}") from te
+            except Exception:
+                logger.error("Data storage failed", exc_info=True)
+                raise
+
+    def process_transfer_async(self, app, data, orchestration_id):
+        with app.app_context():
+            try:
+                current_app.logger.info("Starting background processing")
+
+                # Original processing logic from TransferProcessResource.post()
+                connector_address = data['connectorAddress']
+                parsed_url = urlparse(connector_address)
+                connector_hostname = parsed_url.hostname
+
+                # Update status to PROCESSING
+                with orchestration_store_lock:
+                    orchestration_store[orchestration_id].update({
+                        'status': 'PROCESSING',
+                        'updated_at': import_time()
+                    })
+
+                # Process data entries
+                data_responses = []
+                # download_responses = []
+                for entry in data['data']:
+                    # Initiate transfer process
+                    logger.info(f"Initiating EDC transfer process for Contract ID: {entry['contractId']}")
+                    response = self._handle_edc_request(
+                        {**entry, 'type': 'edc-asset'},
+                        edc_url=f"{connector_address}/api/management/v3/transferprocesses",
+                        orchestration_id=orchestration_id,
+                        transfer_type="HttpData-PULL",
+                        success_status="ASSET_REGISTERED"
+                    )
+
+                    if response.status_code >= 400:
+                        return response
+
+                    response_data = response.get_json()
+                    # print(response_data)
+                    transfer_id = response_data['response']['resource_id']
+
+                    # Retrieve data address for the initiated transfer
+                    data_address_response = self._retrieve_data_address(
+                        connector_address,
+                        transfer_id,
+                        orchestration_id
+                    )
+
+                    if data_address_response.status_code >= 400:
+                        return data_address_response
+
+                    # Extract critical components with validation
+                    edr_data = data_address_response.get_json()['response']
+                    logger.debug("EDR Data Received", extra={'edr_data': edr_data})
+
+                    if not edr_data.get('authorization'):
+                        return create_error_response("Invalid EDR data", "Missing authorization token", 500)
+
+                    auth_token = edr_data.get('authorization')
+                    auth_type = edr_data.get('authType', 'bearer')
+                    endpoint = edr_data.get('endpoint', 'http://provider-qna-dataplane:11002/api/public')
+
+                    headers = {
+                        'Authorization': auth_token,
+                        'endpoint': endpoint,
+                        'authType': auth_type
+                    }
+
+                    download_response = self._download_data(
+                        url=f"http://{connector_hostname}/provider-qna/public/api/public",
+                        headers=headers
+                    )
+                    if download_response.status_code >= 400:
+                        return download_response
+
+                    content = download_response.get_json()['response']['content']
+                    try:
+                        file_path = self._save_data_content(
+                            content,
+                            filename_prefix=f"file_{transfer_id}"
+                        )
+                        data_responses.append({
+                            'transfer_id': transfer_id,
+                            'storage_path': file_path,
+                            'status': 'SAVED'
+                        })
+                    except IOError as exc:
+                        logger.error(f"Failed to save data for transfer {transfer_id}: {exc}")
+                        return create_error_response(
+                            f"Data storage failed for transfer {transfer_id}",
+                            status_code=500
+                        )
+
+                # Final status update
+                with orchestration_store_lock:
+                    orchestration_store[orchestration_id].update({
+                        'status': 'COMPLETED',
+                        'data_responses': data_responses
+                    })
+
+            except Exception as e:
+                logger.error(f"Background processing failed: {str(e)}")
+                with orchestration_store_lock:
+                    orchestration_store[orchestration_id].update({
+                        'status': 'FAILED',
+                        'error': str(e)
+                    })
