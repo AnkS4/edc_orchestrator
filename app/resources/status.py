@@ -30,35 +30,13 @@ def get_detailed_orchestration_data(orchestration_id, process):
     Returns:
         dict: Detailed orchestration data
     """
-    transfer_id = process.get('transfer_id')
-    process_type = process.get('type')
-    if not process_type:
-        if transfer_id:
-            process_type = 'service'
-        elif process.get('endpoint'):
-            process_type = 'data'
-        else:
-            process_type = 'unknown'
-
     response_data = {
         'orchestration_id': orchestration_id,
         'process_status': process['status'],
-        'type': process_type,
         'created_at': process['created_at'],
-        'updated_at': process['updated_at']
+        'updated_at': process['updated_at'],
+        'properties': process.get('properties', {})
     }
-
-    if process_type == 'service' and transfer_id:
-        response_data['transfer_id'] = transfer_id
-        if 'edc_response' in process:
-            response_data['edc_response'] = process['edc_response']
-
-    elif process_type == 'data':
-        response_data.update({
-            'endpoint': process.get('endpoint'),
-            'auth_type': process.get('auth_type', 'none'),
-            'properties': process.get('properties', {})
-        })
 
     return response_data
 
@@ -76,7 +54,7 @@ class OrchestrationStatusResource(Resource):
                 for orch_id, process in orchestration_store.items():
                     detailed_processes[orch_id] = get_detailed_orchestration_data(orch_id, process)
 
-                return create_success_response({
+                return create_success_response(data={
                     'orchestration_processes': detailed_processes
                 })
         except Exception as e:
