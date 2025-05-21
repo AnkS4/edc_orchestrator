@@ -212,17 +212,17 @@ class TransferProcessResource(Resource):
                 try:
                     file_path = self._save_data_content(
                         content,
-                        filename_prefix=f"contract_{entry['contractId']}"
+                        filename_prefix=f"file_{transfer_id}"
                     )
                     data_responses.append({
-                        'contract_id': entry['contractId'],
+                        'transfer_id': transfer_id,
                         'storage_path': file_path,
                         'status': 'SAVED'
                     })
                 except IOError as exc:
-                    logger.error(f"Failed to save data for contract {entry['contractId']}: {exc}")
+                    logger.error(f"Failed to save data for transfer {transfer_id}: {exc}")
                     return create_error_response(
-                        f"Data storage failed for contract {entry['contractId']}",
+                        f"Data storage failed for transfer {transfer_id}",
                         status_code=500
                     )
 
@@ -234,7 +234,8 @@ class TransferProcessResource(Resource):
 
             return create_success_response(
                 data={
-                'status': 200
+                'status': 200,
+                'data_responses': data_responses
                 },
                 orchestration_id=orchestration_id
             )
@@ -246,27 +247,6 @@ class TransferProcessResource(Resource):
             logger.error(f"Combined transfer failed: {str(exc)}", exc_info=True)
             self._update_orchestration_status(orchestration_id, 'FAILED', error=str(exc))
             return create_error_response(str(exc), status_code=500)
-
-    """
-    # Add new helper method
-    def _send_to_storage(self, data):
-        # Send processed data to storage API
-        try:
-            response = requests.post(
-                current_app.config['STORAGE_API_URL'],
-                json=data,
-                headers={'Content-Type': 'application/json'},
-                timeout=5
-            )
-            return response
-        except Exception as e:
-            logger.error(f"Storage API communication failed: {str(e)}")
-            return Response(
-                response=json.dumps({'error': 'Storage service unavailable'}),
-                status=503,
-                mimetype='application/json'
-            )
-    """
 
     def _handle_edc_request(self, args: dict, edc_url: str, orchestration_id: str,
                             transfer_type: str, success_status: str):

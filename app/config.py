@@ -13,7 +13,7 @@ class Config:
     EDC_API_KEY = os.environ.get('EDC_API_KEY', 'password')
 
     # Logging configuration
-    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
+    LOG_LEVEL = os.environ.get('LOG_LEVEL', 'DEBUG')
 
     # Cache settings
     CACHE_TTL = int(os.environ.get('CACHE_TTL', 5))
