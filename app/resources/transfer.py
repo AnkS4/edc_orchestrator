@@ -234,12 +234,12 @@ class TransferProcessResource(Resource):
 
             return create_success_response(
                 status_code = 200,
+                orchestration_id=orchestration_id,
                 data={
                 'status': "SUCCESS",
                 'status_code': 200,
                 'data_responses': data_responses
-                },
-                orchestration_id=orchestration_id
+                }
             )
 
         except ValidationError as ve:

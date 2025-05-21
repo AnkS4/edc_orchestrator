@@ -7,16 +7,23 @@ from flask import jsonify
 logger = logging.getLogger(__name__)
 
 
-def create_success_response(status_code=200, data={}, orchestration_id=None):
+def create_success_response(status_code=200, data=None, orchestration_id=None):
     """Creates a standardized success response with optional orchestration_id at the top level."""
-    response = {
-        'status': 'SUCCESS',
-        'status_code': status_code,
-        'response': data
-    }
 
     if orchestration_id is not None:
-        response['orchestration_id'] = orchestration_id
+        response = {
+            'status': 'SUCCESS',
+            'status_code': status_code,
+            'orchestration_id': orchestration_id,
+            'response': data
+        }
+
+    else:
+        response = {
+            'status': 'SUCCESS',
+            'status_code': status_code,
+            'response': data
+        }
 
     return jsonify(response)
 

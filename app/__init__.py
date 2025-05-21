@@ -37,6 +37,9 @@ def create_app():
 
     app = Flask(__name__)
 
+    # Disable JSON key sorting (Flask 2.3+ syntax)
+    app.json.sort_keys = False
+
     # Load configuration
     from app.config import Config
     app.config.from_object(Config)
