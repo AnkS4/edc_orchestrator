@@ -137,7 +137,7 @@ class TransferProcessResource(Resource):
             connector_hostname = parsed_url.hostname
 
             with orchestration_store_lock:
-                orchestration_store[orchestration_id] = {
+                    orchestration_store[orchestration_id] = {
                     'status': 'INITIALIZING',
                     'type': 'combined',
                     'original_request': data,
@@ -233,8 +233,10 @@ class TransferProcessResource(Resource):
             )
 
             return create_success_response(
+                status_code = 200,
                 data={
-                'status': 200,
+                'status': "SUCCESS",
+                'status_code': 200,
                 'data_responses': data_responses
                 },
                 orchestration_id=orchestration_id
@@ -290,6 +292,7 @@ class TransferProcessResource(Resource):
             )
 
             return create_success_response(
+                status_code=200,
                 data={
                 'resource_id': resource_id,
                 'data': response_data,
@@ -330,7 +333,10 @@ class TransferProcessResource(Resource):
                     data_address=response.json()
                 )
 
-                return create_success_response(response.json())
+                return create_success_response(
+                    status_code = 200,
+                    data=response.json()
+                )
 
             except Exception as exc:
                 logger.error(f"Attempt {attempt + 1} failed: {exc}")
@@ -388,8 +394,11 @@ class TransferProcessResource(Resource):
             # print("content type: ", content_type)
 
             return create_success_response(
-                data={'content': data, 'content_type': content_type},
-                status_code=200
+                status_code=200,
+                data={
+                    'content': data,
+                    'content_type': content_type
+                }
             )
 
         except Exception as exc:
