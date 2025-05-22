@@ -1,0 +1,238 @@
+{
+	"info": {
+		"_postman_id": "1491e8db-db9c-4233-b1ca-78b1c5747d42",
+		"name": "Service APIs v5",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "41811718"
+	},
+	"item": [
+		{
+			"name": "Initiate Transfer - Service & Data",
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							"if(!pm.environment.has(\"CONTRACT_AGREEMENT_ID\")){",
+							"    throw new Error('Contract Agreement ID is not yet available, please execute requests \"Initiate Negotiation and Get Contract Negotiation\" first!');",
+							"}"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is >=200 and <300\", function () {",
+							"    pm.expect(pm.response.code).to.be.within(200, 299);",
+							"});",
+							"",
+							"pm.test(\"Response status code is 200\", function () {",
+							"  pm.response.to.have.status(200);",
+							"});",
+							"",
+							"",
+							"pm.test(\"Response time is within an acceptable range\", function () {",
+							"  pm.expect(pm.response.responseTime).to.be.below(500);",
+							"});",
+							"",
+							"",
+							"pm.test(\"Response body has the required fields and schema validation\", function () {",
+							"    const responseData = pm.response.json();",
+							"",
+							"    pm.expect(responseData).to.be.an('object');",
+							"",
+							"    pm.expect(responseData).to.have.property('id');",
+							"    pm.expect(responseData.id).to.be.a('string');",
+							"",
+							"    pm.expect(responseData).to.have.property('status');",
+							"    pm.expect(responseData.status).to.be.oneOf(['pending', 'processing', 'completed', 'failed']);",
+							"",
+							"    pm.expect(responseData).to.have.property('amount');",
+							"    pm.expect(responseData.amount).to.be.a('number');",
+							"",
+							"    pm.expect(responseData).to.have.property('sourceAccount');",
+							"    pm.expect(responseData.sourceAccount).to.be.a('string');",
+							"",
+							"    pm.expect(responseData).to.have.property('destinationAccount');",
+							"    pm.expect(responseData.destinationAccount).to.be.a('string');",
+							"",
+							"    pm.expect(responseData).to.have.property('timestamp');",
+							"    pm.expect(responseData.timestamp).to.be.a('string');",
+							"});",
+							"// Test to validate the response body schema",
+							"pm.test(\"Response body schema is valid\", function () {",
+							"    const responseData = pm.response.json();",
+							"",
+							"    // Check if the response body has the required fields",
+							"    pm.expect(responseData).to.be.an('object');",
+							"    pm.expect(responseData).to.have.property('id');",
+							"    pm.expect(responseData.id).to.be.a('string');",
+							"    pm.expect(responseData).to.have.property('status');",
+							"    pm.expect(responseData.status).to.be.oneOf(['pending', 'processing', 'completed', 'failed']);",
+							"    pm.expect(responseData).to.have.property('amount');",
+							"    pm.expect(responseData.amount).to.be.a('number');",
+							"    pm.expect(responseData).to.have.property('sourceAccount');",
+							"    pm.expect(responseData.sourceAccount).to.be.a('string');",
+							"    pm.expect(responseData).to.have.property('destinationAccount');",
+							"    pm.expect(responseData.destinationAccount).to.be.a('string');",
+							"    pm.expect(responseData).to.have.property('timestamp');",
+							"    pm.expect(responseData.timestamp).to.be.a('string');",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"protocolProfileBehavior": {
+				"disabledSystemHeaders": {}
+			},
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Api-Key",
+						"value": "password",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n\"data\": [\n   {\n    \"type\": \"edc-asset\",\n    \"counterPartyAddress\": \"http://provider-qna-controlplane:8082/api/dsp\",\n    \"contractId\": \"2b9d3ab6-8325-4c0f-a1f9-56f0e103585e\",\n    \"connectorId\": \"did:web:provider-identityhub:7083:provider\"\n  },\n   {\n    \"type\": \"edc-asset\",\n    \"counterPartyAddress\": \"http://provider-qna-controlplane:8082/api/dsp\",\n    \"contractId\": \"2b9d3ab6-8325-4c0f-a1f9-56f0e103585e\",\n    \"connectorId\": \"did:web:provider-identityhub:7083:provider\"\n  }\n],\n\"connectorAddress\": \"http://merlot-b4.cba.upc.edu/consumer/cp\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:5000/orchestrator/orchestrate",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "5000",
+					"path": [
+						"orchestrator",
+						"orchestrate"
+					]
+				},
+				"description": "# Overview\n\n## Authentication Requirements\n\n- **Header**: X-Api-Key\n    \n- **Validation**: Matches EDC_API_KEY environment variable (case-sensitive)\n    \n- **Error**: 403 Forbidden for invalid keys\n    \n\n---\n\n## Request Structure\n\n**Required Headers**\n\nContent-Type: application/json\n\nX-Api-Key: \\[your_api_key\\]\n\n**Body Parameters**\n\n```\njson{\n\"data\": [\n   {\n    \"type\": \"edc-asset\",\n    \"counterPartyAddress\": \"http://provider-qna-controlplane:8082/api/dsp\",\n    \"contractId\": \"2b9d3ab6-8325-4c0f-a1f9-56f0e103585e\",\n    \"connectorId\": \"did:web:provider-identityhub:7083:provider\"\n  },\n   {\n    \"type\": \"edc-asset\",\n    \"counterPartyAddress\": \"http://provider-qna-controlplane:8082/api/dsp\",\n    \"contractId\": \"2b9d3ab6-8325-4c0f-a1f9-56f0e103585e\",\n    \"connectorId\": \"did:web:provider-identityhub:7083:provider\"\n  }\n],\n\"connectorAddress\": \"http://merlot-b4.cba.upc.edu/consumer/cp\"\n}\n\n ```\n\n**Field Requirements**\n\n| Field | Type | Required | Format |\n| --- | --- | --- | --- |\n| data | array | Yes | Minimum 1 element |\n| data\\[\\].type | string | Yes | \"edc-asset\" |\n| data\\[\\].counterPartyAddress | string | Yes | Valid URL |\n| data\\[\\].contractId | string | Yes | Valid ContractId |\n| data\\[\\].connectorId | string | Yes | Valid ConnectorId |\n| connectorAddress | string | Yes | Valid URL |\n\n---\n\n## Response Handling\n\n**Success (200 OK)**\n\n```\njson{\n  \"status\": \"SUCCESS\",\n  \"orchestration_id\": \"uuid\",\n  \"response\": {\n    \"status\": \"QUEUED\",\n    \"message\": \"Transfer processing started\"\n  }\n}\n\n ```\n\n**Error Responses**\n\n- 400 Bad Request: Invalid JSON format/missing fields\n    \n- 403 Forbidden: Invalid/missing API key\n    \n- 500 Server Error: Internal processing failure\n    \n\n---\n\n---\n\n## Workflow Steps\n\n1. API key validation\n    \n2. Request payload validation\n    \n3. Background process initialization\n    \n4. EDC transfer initiation\n    \n5. Data address retrieval (3 retries)\n    \n6. Data download from provider\n    \n7. Local storage in JSON/DAT format\n    \n8. Status tracking updates\n    \n\n---\n\n## Testing Instructions\n\n1. Use HTTP client (Postman/curl) with headers:\n    \n\n- Content-Type: application/json\n    \n- X-Api-Key: key\n    \n\n1. Send POST request to:  \n    [http://localhost:5000/orchestrator/orchestrate](http://localhost:5000/orchestrator/orchestrate)\n    \n2. Check response for orchestration_id\n    \n3. Monitor status via /status endpoints\n    \n\n---\n\n## Troubleshooting Guide\n\n**Common Issues**\n\n- 403 Errors: Verify X-Api-Key header matches server environment variable\n    \n- Timeouts: Check EDC connector availability\n    \n- Data Not Saved: Validate write permissions to DATA_STORAGE_PATH\n    \n- Validation Failures: Ensure all required fields use proper URL formats"
+			},
+			"response": []
+		},
+		{
+			"name": "Get Orchestrator Status List",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is >=200 and <300\", function () {",
+							"    pm.expect(pm.response.code < 300 && pm.response.code >= 200).to.be.true",
+							"});",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"clientIp\": \"merlot-b4.cba.upc.edu\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:5000/orchestrator/status",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "5000",
+					"path": [
+						"orchestrator",
+						"status"
+					]
+				},
+				"description": "# Overview\n\n## Get All Orchestration Statuses\n\n**Endpoint**: `GET /orchestrator/status`  \n**Purpose**: Retrieve status details for all active orchestration processes\n\n## Response (200 OK)\n\n```\njson{\n    \"status\": \"SUCCESS\",\n    \"status_code\": 200,\n    \"response\": {\n        \"orchestration_processes\": {\n            \"85588705-c860-4348-a02b-fb8f36b9b219\": {\n                \"orchestration_id\": \"85588705-c860-4348-a02b-fb8f36b9b219\",\n                \"process_status\": \"DATA_ADDRESS_RETRIEVED\",\n                \"created_at\": \"2025-05-22T08:37:13.433908+00:00\",\n                \"updated_at\": \"2025-05-22T08:37:14.624743+00:00\",\n                \"properties\": {}\n            }\n        }\n    }\n}\n\n ```\n\n## Status Values\n\n| Status | Description |\n| --- | --- |\n| QUEUED | Initial processing state |\n| PROCESSING | Background thread active |\n| COMPLETED | Successful data transfer |\n| FAILED | Error during processing |\n\n---"
+			},
+			"response": []
+		},
+		{
+			"name": "Get Orchestrator Status",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is >=200 and <300\", function () {",
+							"    pm.expect(pm.response.code < 300 && pm.response.code >= 200).to.be.true",
+							"});",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:5000/orchestrator/status/{{orchestrator_id}}",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "5000",
+					"path": [
+						"orchestrator",
+						"status",
+						"{{orchestrator_id}}"
+					]
+				},
+				"description": "# Overview\n\n## Get Specific Orchestration Status\n\n**Endpoint**: `GET /orchestrator/status/{orchestration_id}`  \n**Purpose**: Get detailed status for a single transfer process\n\n## Path Parameters\n\n| Parameter | Description |\n| --- | --- |\n| orchestration_id | UUID returned from `/orchestrate` endpoint |\n\n## Response (200 OK)\n\n```\njson{\n    \"status\": \"SUCCESS\",\n    \"status_code\": 200,\n    \"response\": {\n        \"orchestration_processes\": {\n            \"c858791f-e6ac-43d0-bc03-4accd023b80a\": {\n                \"orchestration_id\": \"c858791f-e6ac-43d0-bc03-4accd023b80a\",\n                \"process_status\": \"COMPLETED\",\n                \"created_at\": \"2025-05-22T13:18:03.627937+00:00\",\n                \"updated_at\": \"2025-05-22T13:18:12.874444+00:00\",\n                \"storage_paths\": [\n                    {\n                        \"transfer_id\": \"f3a4b4e9-ccf7-4505-b1ea-50c282249d7a\",\n                        \"storage_path\": \"./data/file_f3a4b4e9-ccf7-4505-b1ea-50c282249d7a_20250522151810_0b56e3.json\",\n                        \"status\": \"SAVED\"\n                    },\n                    {\n                        \"transfer_id\": \"c6e0e5c0-2001-4f22-a739-2df9c4a777cd\",\n                        \"storage_path\": \"./data/file_c6e0e5c0-2001-4f22-a739-2df9c4a777cd_20250522151812_3e793f.json\",\n                        \"status\": \"SAVED\"\n                    }\n                ]\n            }\n        }\n    }\n}\n\n ```\n\n## Error Responses\n\n| Status | Condition |\n| --- | --- |\n| 404 | Invalid orchestration_id |\n| 500 | Internal storage error |\n\n---"
+			},
+			"response": []
+		},
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:5000/health",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "5000",
+					"path": [
+						"health"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
