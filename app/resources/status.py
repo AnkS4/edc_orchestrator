@@ -1,11 +1,8 @@
 import logging
-import time
 
-from flask import current_app
 from flask_restful import Resource, reqparse
 
 from app.utils.error_handling import create_error_response, create_success_response, handle_exceptions
-from app.utils.helpers import make_request
 from app.utils.storage import orchestration_store, orchestration_store_lock
 
 logger = logging.getLogger(__name__)
@@ -14,7 +11,7 @@ detail_parser = reqparse.RequestParser()
 detail_parser.add_argument(
     'clientIp',
     type=str,
-    required=True,
+    required=False,
     help="Client IP address must be provided"
 )
 
@@ -98,4 +95,3 @@ class OrchestrationDetailResource(Resource):
             'updated_at': process['updated_at'],
             'storage_paths': process.get('data_responses', [])
         }
-
